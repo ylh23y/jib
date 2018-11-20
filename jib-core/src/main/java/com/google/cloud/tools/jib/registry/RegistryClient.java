@@ -34,6 +34,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
 import java.io.IOException;
 import java.net.URL;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 /** Interfaces with a registry. */
@@ -275,6 +276,15 @@ public class RegistryClient {
    */
   public boolean pushBlob(DescriptorDigest blobDigest, Blob blob, @Nullable String sourceRepository)
       throws IOException, RegistryException {
+    return pushBlob(blobDigest, blob, sourceRepository, ignored -> {});
+  }
+
+  public boolean pushBlob(
+      DescriptorDigest blobDigest,
+      Blob blob,
+      @Nullable String sourceRepository,
+      Consumer<Long> progressMonitor)
+      throws IOException, RegistryException {
     BlobPusher blobPusher =
         new BlobPusher(registryEndpointRequestProperties, blobDigest, blob, sourceRepository);
 
@@ -294,7 +304,7 @@ public class RegistryClient {
         timerEventDispatcher2.lap("pushBlob PATCH " + blobDigest);
 
         // PATCH <Location> with BLOB
-        URL putLocation = callRegistryEndpoint(blobPusher.writer(patchLocation));
+        URL putLocation = callRegistryEndpoint(blobPusher.writer(patchLocation, progressMonitor));
         Preconditions.checkNotNull(putLocation);
 
         timerEventDispatcher2.lap("pushBlob PUT " + blobDigest);

@@ -28,6 +28,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 /**
@@ -111,11 +112,12 @@ class BlobPusher {
   private class Writer implements RegistryEndpointProvider<URL> {
 
     private final URL location;
+    private final Consumer<Long> progressMonitor;
 
     @Nullable
     @Override
     public BlobHttpContent getContent() {
-      return new BlobHttpContent(blob, MediaType.OCTET_STREAM.toString());
+      return new BlobHttpContent(blob, MediaType.OCTET_STREAM.toString(), progressMonitor);
     }
 
     @Override
@@ -145,8 +147,9 @@ class BlobPusher {
       return BlobPusher.this.getActionDescription();
     }
 
-    private Writer(URL location) {
+    private Writer(URL location, Consumer<Long> progressMonitor) {
       this.location = location;
+      this.progressMonitor = progressMonitor;
     }
   }
 
@@ -215,8 +218,8 @@ class BlobPusher {
    * @param location the upload URL
    * @return a {@link RegistryEndpointProvider} for writing the BLOB to an upload location
    */
-  RegistryEndpointProvider<URL> writer(URL location) {
-    return new Writer(location);
+  RegistryEndpointProvider<URL> writer(URL location, Consumer<Long> progressMonitor) {
+    return new Writer(location, progressMonitor);
   }
 
   /**

@@ -20,16 +20,69 @@ import com.google.api.client.http.HttpContent;
 import com.google.cloud.tools.jib.blob.Blob;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.function.Consumer;
 
 /** {@link Blob}-backed {@link HttpContent}. */
 public class BlobHttpContent implements HttpContent {
 
+  private static class MonitoringOutputStream extends OutputStream {
+
+    private final OutputStream underlyingOutputStream;
+    private final Consumer<Long> progressMonitor;
+    private long bytesWritten = 0;
+
+    private MonitoringOutputStream(
+        OutputStream underlyingOutputStream, Consumer<Long> progressMonitor) {
+      this.underlyingOutputStream = underlyingOutputStream;
+      this.progressMonitor = progressMonitor;
+    }
+
+    @Override
+    public void write(int b) throws IOException {
+      underlyingOutputStream.write(b);
+      wroteBytes(1);
+    }
+
+    @Override
+    public void write(byte[] b) throws IOException {
+      underlyingOutputStream.write(b);
+      wroteBytes(b.length);
+    }
+
+    @Override
+    public void write(byte b[], int off, int len) throws IOException {
+      underlyingOutputStream.write(b, off, len);
+      wroteBytes(len);
+    }
+
+    @Override
+    public void flush() throws IOException {
+      underlyingOutputStream.flush();
+    }
+
+    @Override
+    public void close() throws IOException {
+      underlyingOutputStream.close();
+    }
+
+    private void wroteBytes(long count) {
+      bytesWritten += count;
+      progressMonitor.accept(bytesWritten);
+    }
+  }
+
   private final Blob blob;
   private final String contentType;
+  private final Consumer<Long> progressMonitor;
 
   public BlobHttpContent(Blob blob, String contentType) {
+    this(blob, contentType, ignored -> {});
+  }
+
+  public BlobHttpContent(Blob blob, String contentType, Consumer<Long> progressMonitor) {
     this.blob = blob;
     this.contentType = contentType;
+    this.progressMonitor = progressMonitor;
   }
 
   @Override
@@ -50,7 +103,9 @@ public class BlobHttpContent implements HttpContent {
 
   @Override
   public void writeTo(OutputStream outputStream) throws IOException {
-    blob.writeTo(outputStream);
-    outputStream.flush();
+    MonitoringOutputStream monitoringOutputStream =
+        new MonitoringOutputStream(outputStream, progressMonitor);
+    blob.writeTo(monitoringOutputStream);
+    monitoringOutputStream.flush();
   }
 }

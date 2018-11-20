@@ -85,7 +85,14 @@ class PushBlobStep implements AsyncStep<BlobDescriptor>, Callable<BlobDescriptor
       }
 
       // todo: leverage cross-repository mounts
-      registryClient.pushBlob(blobDescriptor.getDigest(), blob, null);
+      registryClient.pushBlob(
+          blobDescriptor.getDigest(),
+          blob,
+          null,
+          bytesWritten -> {
+            System.out.println(
+                blobDescriptor.getDigest() + ": " + bytesWritten + "/" + blobDescriptor.getSize());
+          });
 
       return blobDescriptor;
     }
