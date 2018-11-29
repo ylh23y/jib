@@ -101,6 +101,7 @@ public class JibPlugin implements Plugin<Project> {
             .setJibExtension(jibExtension);
     Task filesTask =
         project.getTasks().create(FILES_TASK_NAME, FilesTask.class).setJibExtension(jibExtension);
+    project.getTasks().create("progress", ProgressTask.class);
 
     project.afterEvaluate(
         projectAfterEvaluation -> {
