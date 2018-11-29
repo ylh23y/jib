@@ -34,7 +34,11 @@ public class ProgressEvent implements JibEvent {
      *
      * @return the fraction of the root allocation
      */
-    private static double getFractionOfRoot(ProgressAllocation parent) {
+    private static double calculateFractionOfRoot(@Nullable ProgressAllocation parent) {
+      if (parent == null) {
+        return 1.0;
+      }
+
       double fractionOfRoot = 1.0;
 
       ProgressAllocation parentProgressAllocation = parent;
@@ -56,7 +60,7 @@ public class ProgressEvent implements JibEvent {
       this.description = description;
       this.allocationUnits = allocationUnits;
       this.parent = parent;
-      this.fractionOfRoot = getFractionOfRoot(parent);
+      this.fractionOfRoot = calculateFractionOfRoot(parent);
     }
 
     public ProgressAllocation allocate(String description, long subAllocationUnits) {

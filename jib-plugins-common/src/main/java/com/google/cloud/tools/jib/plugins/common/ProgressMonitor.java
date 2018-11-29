@@ -32,10 +32,11 @@ public class ProgressMonitor {
   public void receiveProgressEvent(ProgressEvent progressEvent) {
     ProgressAllocation progressAllocation = progressEvent.getProgressAllocation();
     long progressUnits = progressEvent.getProgressUnits();
+    long progressTotal = progressAllocation.getAllocationUnits();
 
     updateCompletionMap(progressAllocation, progressUnits);
 
-    progress += progressUnits * progressAllocation.getFractionOfRoot();
+    progress += progressUnits * progressAllocation.getFractionOfRoot() / progressTotal;
 
     displayProgress(50);
   }
@@ -67,11 +68,16 @@ public class ProgressMonitor {
     StringBuilder progressLine = new StringBuilder();
 
     progressLine.append("Executing tasks [");
-    for (int i = 0; i < Math.round(numBars * progress); i ++) {
-      progressLine.append('=');
+    int barsToDisplay = (int)Math.round(numBars * progress);
+    for (int i = 0; i < numBars; i ++) {
+      if (i < barsToDisplay) {
+        progressLine.append('=');
+      } else {
+        progressLine.append(' ');
+      }
     }
     progressLine.append("] ");
-    progressLine.append(progress * 100);
+    progressLine.append(String.format("%.1f", progress * 100));
     progressLine.append("% complete");
 
     System.out.print("\033[1A");
