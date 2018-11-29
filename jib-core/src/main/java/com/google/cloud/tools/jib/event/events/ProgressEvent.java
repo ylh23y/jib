@@ -19,12 +19,13 @@ package com.google.cloud.tools.jib.event.events;
 import com.google.cloud.tools.jib.event.JibEvent;
 
 import javax.annotation.Nullable;
+import java.util.Optional;
 
 public class ProgressEvent implements JibEvent {
 
   public static class ProgressAllocation {
 
-    public static ProgressAllocation newProgressRoot(String description, int allocationUnits) {
+    public static ProgressAllocation newProgressRoot(String description, long allocationUnits) {
       return new ProgressAllocation(description, allocationUnits, null);
     }
 
@@ -46,19 +47,19 @@ public class ProgressEvent implements JibEvent {
     }
 
     private final String description;
-    private final int allocationUnits;
+    private final long allocationUnits;
     @Nullable
     private final ProgressAllocation parent;
     private final double fractionOfRoot;
 
-    private ProgressAllocation(String description, int allocationUnits, @Nullable ProgressAllocation parent) {
+    private ProgressAllocation(String description, long allocationUnits, @Nullable ProgressAllocation parent) {
       this.description = description;
       this.allocationUnits = allocationUnits;
       this.parent = parent;
       this.fractionOfRoot = getFractionOfRoot(parent);
     }
 
-    public ProgressAllocation allocate(String description, int subAllocationUnits) {
+    public ProgressAllocation allocate(String description, long subAllocationUnits) {
       return new ProgressAllocation(description, subAllocationUnits, this);
       // TODO: Should call makeProgress(0);
     }
@@ -67,11 +68,15 @@ public class ProgressEvent implements JibEvent {
       return description;
     }
 
-    public int getAllocationUnits() {
+    public long getAllocationUnits() {
       return allocationUnits;
     }
 
-    public ProgressEvent makeProgressEvent(int progressUnits) {
+    public Optional<ProgressAllocation> getParent() {
+      return Optional.ofNullable(parent);
+    }
+
+    public ProgressEvent makeProgressEvent(long progressUnits) {
       return new ProgressEvent(this, progressUnits);
     }
 
@@ -81,9 +86,9 @@ public class ProgressEvent implements JibEvent {
   }
 
   private final ProgressAllocation progressAllocation;
-  private final int progressUnits;
+  private final long progressUnits;
 
-  private ProgressEvent(ProgressAllocation progressAllocation, int progressUnits) {
+  private ProgressEvent(ProgressAllocation progressAllocation, long progressUnits) {
     this.progressAllocation = progressAllocation;
     this.progressUnits = progressUnits;
   }
@@ -92,7 +97,7 @@ public class ProgressEvent implements JibEvent {
     return progressAllocation;
   }
 
-  public int getProgressUnits() {
+  public long getProgressUnits() {
     return progressUnits;
   }
 }
