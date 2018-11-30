@@ -21,12 +21,14 @@ import com.google.cloud.tools.jib.blob.BlobDescriptor;
 import com.google.cloud.tools.jib.http.BlobHttpContent;
 import com.google.cloud.tools.jib.http.Response;
 import com.google.cloud.tools.jib.image.DescriptorDigest;
+import com.google.cloud.tools.jib.progress.ListenableCountingOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
 /** Pulls an image's BLOB (layer or container configuration). */
@@ -42,19 +44,31 @@ class BlobPuller implements RegistryEndpointProvider<Void> {
    */
   private final OutputStream destinationOutputStream;
 
+  private final Consumer<Long> sizeConsumer;
+  private final Consumer<Long> progressConsumer;
+
   BlobPuller(
       RegistryEndpointRequestProperties registryEndpointRequestProperties,
       DescriptorDigest blobDigest,
-      OutputStream destinationOutputStream) {
+      OutputStream destinationOutputStream,
+      Consumer<Long> sizeConsumer,
+      Consumer<Long> progressConsumer) {
     this.registryEndpointRequestProperties = registryEndpointRequestProperties;
     this.blobDigest = blobDigest;
     this.destinationOutputStream = destinationOutputStream;
+    this.sizeConsumer = sizeConsumer;
+    this.progressConsumer = progressConsumer;
   }
 
   @Override
   public Void handleResponse(Response response) throws IOException, UnexpectedBlobDigestException {
+    sizeConsumer.accept(response.getContentLength());
+
     try (OutputStream outputStream = destinationOutputStream) {
-      BlobDescriptor receivedBlobDescriptor = response.getBody().writeTo(outputStream);
+      ListenableCountingOutputStream listenableCountingOutputStream =
+          new ListenableCountingOutputStream(outputStream, progressConsumer);
+      BlobDescriptor receivedBlobDescriptor =
+          response.getBody().writeTo(listenableCountingOutputStream);
 
       if (!blobDigest.equals(receivedBlobDescriptor.getDigest())) {
         throw new UnexpectedBlobDigestException(

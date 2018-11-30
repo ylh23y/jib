@@ -19,6 +19,7 @@ package com.google.cloud.tools.jib.builder.steps;
 import com.google.cloud.tools.jib.async.AsyncSteps;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
 import com.google.cloud.tools.jib.docker.DockerClient;
+import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 import com.google.cloud.tools.jib.global.JibSystemProperties;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -41,6 +42,7 @@ public class StepsRunner {
 
   private final ListeningExecutorService listeningExecutorService;
   private final BuildConfiguration buildConfiguration;
+  private final ProgressAllocation rootProgressAllocation;
 
   @Nullable private RetrieveRegistryCredentialsStep retrieveTargetRegistryCredentialsStep;
   @Nullable private AuthenticatePushStep authenticatePushStep;
@@ -58,8 +60,10 @@ public class StepsRunner {
   @Nullable private LoadDockerStep loadDockerStep;
   @Nullable private WriteTarFileStep writeTarFileStep;
 
-  public StepsRunner(BuildConfiguration buildConfiguration) {
+  public StepsRunner(
+      BuildConfiguration buildConfiguration, ProgressAllocation rootProgressAllocation) {
     this.buildConfiguration = buildConfiguration;
+    this.rootProgressAllocation = rootProgressAllocation;
 
     ExecutorService executorService =
         JibSystemProperties.isSerializedExecutionEnabled()
@@ -85,7 +89,8 @@ public class StepsRunner {
   }
 
   public StepsRunner runPullBaseImageStep() {
-    pullBaseImageStep = new PullBaseImageStep(listeningExecutorService, buildConfiguration);
+    pullBaseImageStep =
+        new PullBaseImageStep(listeningExecutorService, buildConfiguration, rootProgressAllocation);
     return this;
   }
 
@@ -94,7 +99,8 @@ public class StepsRunner {
         new PullAndCacheBaseImageLayersStep(
             listeningExecutorService,
             buildConfiguration,
-            Preconditions.checkNotNull(pullBaseImageStep));
+            Preconditions.checkNotNull(pullBaseImageStep),
+            rootProgressAllocation);
     return this;
   }
 
@@ -110,7 +116,8 @@ public class StepsRunner {
 
   public StepsRunner runBuildAndCacheApplicationLayerSteps() {
     buildAndCacheApplicationLayerSteps =
-        BuildAndCacheApplicationLayerStep.makeList(listeningExecutorService, buildConfiguration);
+        BuildAndCacheApplicationLayerStep.makeList(
+            listeningExecutorService, buildConfiguration, rootProgressAllocation);
     return this;
   }
 

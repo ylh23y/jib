@@ -18,6 +18,7 @@ package com.google.cloud.tools.jib.gradle;
 
 import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 import com.google.cloud.tools.jib.plugins.common.ProgressMonitor;
+import com.google.common.util.concurrent.MoreExecutors;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.tasks.TaskAction;
 
@@ -27,15 +28,17 @@ public class ProgressTask extends DefaultTask {
   public void showProgress() throws InterruptedException {
     System.out.println();
 
-    ProgressMonitor progressMonitor = new ProgressMonitor();
+    ProgressMonitor progressMonitor = new ProgressMonitor(MoreExecutors.newDirectExecutorService());
 
-    ProgressAllocation progressAllocation = ProgressAllocation.newProgressRoot("root", 2);
-    progressMonitor.receiveProgressEvent(progressAllocation.makeProgressEvent(0));
+    ProgressAllocation root = ProgressAllocation.newProgressRoot("root", 2);
+    progressMonitor.accept(root.makeProgressEvent(0));
 
-    ProgressAllocation half1 = progressAllocation.allocate("half1", 100);
+    ProgressAllocation half1 = root.allocate("half1", 100);
+    ProgressAllocation half2 = root.allocate("half2", 30);
 
     while (true) {
-      progressMonitor.receiveProgressEvent(half1.makeProgressEvent(1));
+      progressMonitor.accept(half1.makeProgressEvent(1));
+      progressMonitor.accept(half2.makeProgressEvent(2));
 
       Thread.sleep(1000);
     }

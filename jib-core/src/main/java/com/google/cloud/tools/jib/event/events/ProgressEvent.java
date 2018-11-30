@@ -17,9 +17,8 @@
 package com.google.cloud.tools.jib.event.events;
 
 import com.google.cloud.tools.jib.event.JibEvent;
-
-import javax.annotation.Nullable;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class ProgressEvent implements JibEvent {
 
@@ -29,38 +28,15 @@ public class ProgressEvent implements JibEvent {
       return new ProgressAllocation(description, allocationUnits, null);
     }
 
-    /**
-     * Gets the fraction of the root allocation this allocation represents.
-     *
-     * @return the fraction of the root allocation
-     */
-    private static double calculateFractionOfRoot(@Nullable ProgressAllocation parent) {
-      if (parent == null) {
-        return 1.0;
-      }
-
-      double fractionOfRoot = 1.0;
-
-      ProgressAllocation parentProgressAllocation = parent;
-      while (parentProgressAllocation != null) {
-        fractionOfRoot /= parentProgressAllocation.allocationUnits;
-        parentProgressAllocation = parentProgressAllocation.parent;
-      }
-
-      return fractionOfRoot;
-    }
-
     private final String description;
     private final long allocationUnits;
-    @Nullable
-    private final ProgressAllocation parent;
-    private final double fractionOfRoot;
+    @Nullable private final ProgressAllocation parent;
 
-    private ProgressAllocation(String description, long allocationUnits, @Nullable ProgressAllocation parent) {
+    private ProgressAllocation(
+        String description, long allocationUnits, @Nullable ProgressAllocation parent) {
       this.description = description;
       this.allocationUnits = allocationUnits;
       this.parent = parent;
-      this.fractionOfRoot = calculateFractionOfRoot(parent);
     }
 
     public ProgressAllocation allocate(String description, long subAllocationUnits) {
@@ -85,7 +61,10 @@ public class ProgressEvent implements JibEvent {
     }
 
     public double getFractionOfRoot() {
-      return fractionOfRoot;
+      if (parent == null) {
+        return 1.0;
+      }
+      return parent.getFractionOfRoot() / parent.allocationUnits;
     }
   }
 
@@ -106,7 +85,6 @@ public class ProgressEvent implements JibEvent {
   }
 }
 /**
- Overall progress split into defined chunks
- Subprogresses claim chunks as they come, but amount within each chunk unknown
- Amount within each subprogress is determined when that subprogress runs
+ * Overall progress split into defined chunks Subprogresses claim chunks as they come, but amount
+ * within each chunk unknown Amount within each subprogress is determined when that subprogress runs
  */

@@ -91,8 +91,9 @@ class PushBlobStep implements AsyncStep<BlobDescriptor>, Callable<BlobDescriptor
           null,
           bytesWritten -> {
             // TODO: This should fire ProgressEvent
-//            System.out.println(
-//                blobDescriptor.getDigest() + ": " + bytesWritten + "/" + blobDescriptor.getSize());
+            //            System.out.println(
+            //                blobDescriptor.getDigest() + ": " + bytesWritten + "/" +
+            // blobDescriptor.getSize());
           });
 
       return blobDescriptor;

@@ -22,6 +22,7 @@ import com.google.cloud.tools.jib.event.JibEventType;
 import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
+import com.google.cloud.tools.jib.plugins.common.ProgressMonitor;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
 import com.google.common.annotations.VisibleForTesting;
@@ -82,7 +83,8 @@ class GradleProjectProperties implements ProjectProperties {
         .add(JibEventType.LOGGING, logEventHandler)
         .add(
             JibEventType.TIMING,
-            new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))));
+            new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
+        .add(JibEventType.PROGRESS, new ProgressMonitor(logEventHandler.getExecutorService()));
   }
 
   @Nullable

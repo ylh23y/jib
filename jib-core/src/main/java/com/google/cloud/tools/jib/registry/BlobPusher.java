@@ -112,12 +112,12 @@ class BlobPusher {
   private class Writer implements RegistryEndpointProvider<URL> {
 
     private final URL location;
-    private final Consumer<Long> progressMonitor;
+    private final Consumer<Long> progressConsumer;
 
     @Nullable
     @Override
     public BlobHttpContent getContent() {
-      return new BlobHttpContent(blob, MediaType.OCTET_STREAM.toString(), progressMonitor);
+      return new BlobHttpContent(blob, MediaType.OCTET_STREAM.toString(), progressConsumer);
     }
 
     @Override
@@ -147,9 +147,9 @@ class BlobPusher {
       return BlobPusher.this.getActionDescription();
     }
 
-    private Writer(URL location, Consumer<Long> progressMonitor) {
+    private Writer(URL location, Consumer<Long> progressConsumer) {
       this.location = location;
-      this.progressMonitor = progressMonitor;
+      this.progressConsumer = progressConsumer;
     }
   }
 

@@ -16,25 +16,42 @@
 
 package com.google.cloud.tools.jib.plugins.common;
 
+import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.event.events.ProgressEvent;
 import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
 
-public class ProgressMonitor {
+public class ProgressMonitor implements Consumer<ProgressEvent> {
+
+  private final ExecutorService executorService;
 
   /** Maps from {@link ProgressAllocation} to number of units completed in that allocation. */
   private final Map<ProgressAllocation, Long> allocationCompletionMap = new HashMap<>();
 
   private double progress = 0.0;
 
-  public void receiveProgressEvent(ProgressEvent progressEvent) {
+  public ProgressMonitor(ExecutorService executorService) {
+    this.executorService = executorService;
+  }
+
+  @Override
+  public synchronized void accept(ProgressEvent progressEvent) {
     ProgressAllocation progressAllocation = progressEvent.getProgressAllocation();
     long progressUnits = progressEvent.getProgressUnits();
     long progressTotal = progressAllocation.getAllocationUnits();
 
     updateCompletionMap(progressAllocation, progressUnits);
+
+    // TODO: Refactor
+    if (progressUnits == 0) {
+      return;
+    }
 
     progress += progressUnits * progressAllocation.getFractionOfRoot() / progressTotal;
 
@@ -64,6 +81,17 @@ public class ProgressMonitor {
     }
   }
 
+//  private List<String> getUnfinishedDescriptions() {
+//    List<String> descriptions = new ArrayList<>();
+//    for (Map.Entry<ProgressAllocation, Long> allocationCompletionEntry : allocationCompletionMap.entrySet()) {
+//      ProgressAllocation progressAllocation = allocationCompletionEntry.getKey();
+//      if (progressAllocation.getAllocationUnits() != allocationCompletionEntry.getValue()) {
+//        descriptions.add(progressAllocation.getDescription());
+//      }
+//    }
+//    return descriptions;
+//  }
+
   private void displayProgress(int numBars) {
     StringBuilder progressLine = new StringBuilder();
 
@@ -80,7 +108,9 @@ public class ProgressMonitor {
     progressLine.append(String.format("%.1f", progress * 100));
     progressLine.append("% complete");
 
-    System.out.print("\033[1A");
-    System.out.println(progressLine);
+    executorService.submit(() -> {
+      System.out.print("\033[1A");
+      System.out.println(progressLine);
+    });
   }
 }

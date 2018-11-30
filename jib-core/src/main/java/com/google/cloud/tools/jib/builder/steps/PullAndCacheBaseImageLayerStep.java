@@ -22,12 +22,15 @@ import com.google.cloud.tools.jib.cache.Cache;
 import com.google.cloud.tools.jib.cache.CacheCorruptedException;
 import com.google.cloud.tools.jib.cache.CachedLayer;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
+import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 import com.google.cloud.tools.jib.http.Authorization;
 import com.google.cloud.tools.jib.image.DescriptorDigest;
 import com.google.cloud.tools.jib.registry.RegistryClient;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import javax.annotation.Nullable;
@@ -39,7 +42,8 @@ class PullAndCacheBaseImageLayerStep implements AsyncStep<CachedLayer>, Callable
 
   private final BuildConfiguration buildConfiguration;
   private final DescriptorDigest layerDigest;
-  private final @Nullable Authorization pullAuthorization;
+  @Nullable private final Authorization pullAuthorization;
+  private final ProgressAllocation parentProgressAllocation;
 
   private final ListenableFuture<CachedLayer> listenableFuture;
 
@@ -47,10 +51,12 @@ class PullAndCacheBaseImageLayerStep implements AsyncStep<CachedLayer>, Callable
       ListeningExecutorService listeningExecutorService,
       BuildConfiguration buildConfiguration,
       DescriptorDigest layerDigest,
-      @Nullable Authorization pullAuthorization) {
+      @Nullable Authorization pullAuthorization,
+      ProgressAllocation parentProgressAllocation) {
     this.buildConfiguration = buildConfiguration;
     this.layerDigest = layerDigest;
     this.pullAuthorization = pullAuthorization;
+    this.parentProgressAllocation = parentProgressAllocation;
 
     listenableFuture = listeningExecutorService.submit(this);
   }
@@ -62,6 +68,11 @@ class PullAndCacheBaseImageLayerStep implements AsyncStep<CachedLayer>, Callable
 
   @Override
   public CachedLayer call() throws IOException, CacheCorruptedException {
+    // TODO: Refactor progress updates.
+    ProgressAllocation progressAllocation =
+        parentProgressAllocation.allocate("pull base image layer " + layerDigest, 1);
+    buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(0));
+
     try (TimerEventDispatcher ignored =
         new TimerEventDispatcher(
             buildConfiguration.getEventDispatcher(), String.format(DESCRIPTION, layerDigest))) {
@@ -70,6 +81,8 @@ class PullAndCacheBaseImageLayerStep implements AsyncStep<CachedLayer>, Callable
       // Checks if the layer already exists in the cache.
       Optional<CachedLayer> optionalCachedLayer = cache.retrieve(layerDigest);
       if (optionalCachedLayer.isPresent()) {
+        // TODO: REFACTOR
+        buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(1));
         return optionalCachedLayer.get();
       }
 
@@ -78,7 +91,27 @@ class PullAndCacheBaseImageLayerStep implements AsyncStep<CachedLayer>, Callable
               .newBaseImageRegistryClientFactory()
               .setAuthorization(pullAuthorization)
               .newRegistryClient();
-      return cache.writeCompressedLayer(registryClient.pullBlob(layerDigest));
+
+      // TODO: This is such a hack.
+      List<ProgressAllocation> pullProgressAllocation = new ArrayList<>();
+      CachedLayer cachedLayer =
+          cache.writeCompressedLayer(
+              registryClient.pullBlob(
+                  layerDigest,
+                  layerSize -> {
+                    if (pullProgressAllocation.size() > 0) {
+                      throw new IllegalStateException("WHAT");
+                    }
+                    pullProgressAllocation.add(
+                        progressAllocation.allocate("pulling layer " + layerDigest, layerSize));
+                  },
+                  bytesReceived -> {
+                    buildConfiguration
+                        .getEventDispatcher()
+                        .dispatch(pullProgressAllocation.get(0).makeProgressEvent(bytesReceived));
+                  }));
+
+      return cachedLayer;
     }
   }
 }

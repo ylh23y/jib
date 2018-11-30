@@ -63,4 +63,8 @@ class LogEventHandler implements Consumer<LogEvent> {
         throw new IllegalStateException("Unknown LogEvent.Level: " + logEvent.getLevel());
     }
   }
+
+  public ExecutorService getExecutorService() {
+    return executorService;
+  }
 }

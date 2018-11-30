@@ -249,11 +249,23 @@ public class RegistryClient {
    *     must exist for {@link Blob} to be valid.
    */
   public Blob pullBlob(DescriptorDigest blobDigest) {
+    return pullBlob(blobDigest, ignored -> {}, ignored -> {});
+  }
+
+  public Blob pullBlob(
+      DescriptorDigest blobDigest,
+      Consumer<Long> blobSizeConsumer,
+      Consumer<Long> blobProgressConsumer) {
     return Blobs.from(
         outputStream -> {
           try {
             callRegistryEndpoint(
-                new BlobPuller(registryEndpointRequestProperties, blobDigest, outputStream));
+                new BlobPuller(
+                    registryEndpointRequestProperties,
+                    blobDigest,
+                    outputStream,
+                    blobSizeConsumer,
+                    blobProgressConsumer));
 
           } catch (RegistryException ex) {
             throw new IOException(ex);

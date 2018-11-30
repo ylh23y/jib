@@ -20,6 +20,7 @@ import com.google.cloud.tools.jib.builder.steps.BuildResult;
 import com.google.cloud.tools.jib.builder.steps.StepsRunner;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
 import com.google.cloud.tools.jib.docker.DockerClient;
+import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutionException;
 
@@ -55,7 +56,7 @@ public class BuildSteps {
         DESCRIPTION_FOR_DOCKER_REGISTRY,
         buildConfiguration,
         () ->
-            new StepsRunner(buildConfiguration)
+            new StepsRunner(buildConfiguration, ProgressAllocation.newProgressRoot("IGNORED", 0))
                 .runRetrieveTargetRegistryCredentialsStep()
                 .runAuthenticatePushStep()
                 .runPullBaseImageStep()
@@ -79,11 +80,17 @@ public class BuildSteps {
    */
   public static BuildSteps forBuildToDockerDaemon(
       DockerClient dockerClient, BuildConfiguration buildConfiguration) {
+    // TODO: Move this to StepsRunner and turn that into a builder that only runs the entire thing
+    // on the call to wait...
+    ProgressAllocation rootProgressAllocation =
+        ProgressAllocation.newProgressRoot("build to docker daemon", 6);
+    buildConfiguration.getEventDispatcher().dispatch(rootProgressAllocation.makeProgressEvent(0));
+
     return new BuildSteps(
         DESCRIPTION_FOR_DOCKER_DAEMON,
         buildConfiguration,
         () ->
-            new StepsRunner(buildConfiguration)
+            new StepsRunner(buildConfiguration, rootProgressAllocation)
                 .runPullBaseImageStep()
                 .runPullAndCacheBaseImageLayersStep()
                 .runBuildAndCacheApplicationLayerSteps()
@@ -105,7 +112,7 @@ public class BuildSteps {
         DESCRIPTION_FOR_TARBALL,
         buildConfiguration,
         () ->
-            new StepsRunner(buildConfiguration)
+            new StepsRunner(buildConfiguration, ProgressAllocation.newProgressRoot("IGNORED", 0))
                 .runPullBaseImageStep()
                 .runPullAndCacheBaseImageLayersStep()
                 .runBuildAndCacheApplicationLayerSteps()
