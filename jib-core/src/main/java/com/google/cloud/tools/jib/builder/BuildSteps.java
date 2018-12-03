@@ -83,7 +83,7 @@ public class BuildSteps {
     // TODO: Move this to StepsRunner and turn that into a builder that only runs the entire thing
     // on the call to wait...
     ProgressAllocation rootProgressAllocation =
-        ProgressAllocation.newProgressRoot("build to docker daemon", 6);
+        ProgressAllocation.newProgressRoot("build to docker daemon", 5);
     buildConfiguration.getEventDispatcher().dispatch(rootProgressAllocation.makeProgressEvent(0));
 
     return new BuildSteps(

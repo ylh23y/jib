@@ -128,7 +128,8 @@ public class StepsRunner {
             buildConfiguration,
             Preconditions.checkNotNull(pullBaseImageStep),
             Preconditions.checkNotNull(pullAndCacheBaseImageLayersStep),
-            Preconditions.checkNotNull(buildAndCacheApplicationLayerSteps));
+            Preconditions.checkNotNull(buildAndCacheApplicationLayerSteps),
+            rootProgressAllocation);
     return this;
   }
 
@@ -191,6 +192,7 @@ public class StepsRunner {
             listeningExecutorService,
             dockerClient,
             buildConfiguration,
+            rootProgressAllocation,
             Preconditions.checkNotNull(pullAndCacheBaseImageLayersStep),
             Preconditions.checkNotNull(buildAndCacheApplicationLayerSteps),
             Preconditions.checkNotNull(buildImageStep));

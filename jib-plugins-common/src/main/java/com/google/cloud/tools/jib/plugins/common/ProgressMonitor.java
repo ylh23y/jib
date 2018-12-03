@@ -20,24 +20,24 @@ import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.event.events.ProgressEvent;
 import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public class ProgressMonitor implements Consumer<ProgressEvent> {
 
-  private final ExecutorService executorService;
+  private final BiConsumer<String, Integer> progressLineConsumer;
 
   /** Maps from {@link ProgressAllocation} to number of units completed in that allocation. */
   private final Map<ProgressAllocation, Long> allocationCompletionMap = new HashMap<>();
 
   private double progress = 0.0;
+  private String executingTasks = "";
+  private int executingTasksLineCount = 0;
 
-  public ProgressMonitor(ExecutorService executorService) {
-    this.executorService = executorService;
+  public ProgressMonitor(BiConsumer<String, Integer> progressLineConsumer) {
+    this.progressLineConsumer = progressLineConsumer;
   }
 
   @Override
@@ -46,7 +46,7 @@ public class ProgressMonitor implements Consumer<ProgressEvent> {
     long progressUnits = progressEvent.getProgressUnits();
     long progressTotal = progressAllocation.getAllocationUnits();
 
-    updateCompletionMap(progressAllocation, progressUnits);
+    boolean tasksUpdated = updateCompletionMap(progressAllocation, progressUnits);
 
     // TODO: Refactor
     if (progressUnits == 0) {
@@ -55,15 +55,18 @@ public class ProgressMonitor implements Consumer<ProgressEvent> {
 
     progress += progressUnits * progressAllocation.getFractionOfRoot() / progressTotal;
 
-    displayProgress(50);
+    displayProgress(50, tasksUpdated);
   }
 
-  private void updateCompletionMap(ProgressAllocation progressAllocation, long progressUnits) {
+  private boolean updateCompletionMap(ProgressAllocation progressAllocation, long progressUnits) {
+    boolean tasksUpdated = false;
+
     if (!allocationCompletionMap.containsKey(progressAllocation)) {
       allocationCompletionMap.put(progressAllocation, 0L);
+      tasksUpdated = true;
     }
     if (progressUnits == 0) {
-      return;
+      return false;
     }
 
     long priorCompleted = allocationCompletionMap.get(progressAllocation);
@@ -75,10 +78,11 @@ public class ProgressMonitor implements Consumer<ProgressEvent> {
 
     // Updates the parents.
     if (newCompleted == progressAllocation.getAllocationUnits()) {
-      progressAllocation.getParent().ifPresent(parentProgressAllocation -> {
-        updateCompletionMap(parentProgressAllocation, 1);
-      });
+      progressAllocation.getParent().ifPresent(parentProgressAllocation -> updateCompletionMap(parentProgressAllocation, 1));
+      return true;
     }
+
+    return tasksUpdated;
   }
 
 //  private List<String> getUnfinishedDescriptions() {
@@ -92,10 +96,59 @@ public class ProgressMonitor implements Consumer<ProgressEvent> {
 //    return descriptions;
 //  }
 
-  private void displayProgress(int numBars) {
+  private void displayProgress(int numBars, boolean tasksUpdated) {
     StringBuilder progressLine = new StringBuilder();
+    int lineCount = 0;
 
-    progressLine.append("Executing tasks [");
+    progressLine.append('\n');
+    lineCount ++;
+
+    if (tasksUpdated) {
+      StringBuilder executingTasksBuilder = new StringBuilder();
+      executingTasksLineCount = 0;
+
+      // First, get all progress allocation that have not completed.
+      // Then, go through all and make set of progress allocation that are not leaf.
+      // Then, prune not completed to leave only leaf.
+
+      Set<ProgressAllocation> notCompletedAll = new HashSet<>();
+
+      for (Map.Entry<ProgressAllocation, Long> allocationCompletionEntry : allocationCompletionMap.entrySet()) {
+        ProgressAllocation progressAllocation = allocationCompletionEntry.getKey();
+        long progressUnits = allocationCompletionEntry.getValue();
+
+        if (progressUnits < progressAllocation.getAllocationUnits()) {
+          notCompletedAll.add(progressAllocation);
+        }
+      }
+
+      Set<ProgressAllocation> isLeaf = new HashSet<>();
+      for (ProgressAllocation progressAllocation : notCompletedAll) {
+        isLeaf.add(progressAllocation);
+      }
+      for (ProgressAllocation progressAllocation : notCompletedAll) {
+        Optional<ProgressAllocation> parent = progressAllocation.getParent();
+
+        while (parent.isPresent()) {
+          isLeaf.remove(parent.get());
+          parent = parent.get().getParent();
+        }
+      }
+
+      for (ProgressAllocation progressAllocation : isLeaf) {
+        executingTasksBuilder.append("> ").append(progressAllocation.getDescription()).append('\n');
+        executingTasksLineCount ++;
+      }
+
+      executingTasks = executingTasksBuilder.toString();
+    }
+
+    if (executingTasksLineCount > 0) {
+      progressLine.append("Executing tasks:\n").append(executingTasks);
+      lineCount += executingTasksLineCount + 1;
+    }
+
+    progressLine.append("[");
     int barsToDisplay = (int)Math.round(numBars * progress);
     for (int i = 0; i < numBars; i ++) {
       if (i < barsToDisplay) {
@@ -107,10 +160,11 @@ public class ProgressMonitor implements Consumer<ProgressEvent> {
     progressLine.append("] ");
     progressLine.append(String.format("%.1f", progress * 100));
     progressLine.append("% complete");
+    lineCount ++;
 
-    executorService.submit(() -> {
-      System.out.print("\033[1A");
-      System.out.println(progressLine);
-    });
+    progressLine.append('\n');
+    lineCount ++;
+
+    progressLineConsumer.accept(progressLine.toString(), lineCount);
   }
 }

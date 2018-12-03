@@ -84,7 +84,7 @@ class GradleProjectProperties implements ProjectProperties {
         .add(
             JibEventType.TIMING,
             new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
-        .add(JibEventType.PROGRESS, new ProgressMonitor(logEventHandler.getExecutorService()));
+        .add(JibEventType.PROGRESS, new ProgressMonitor(logEventHandler.getFooterSetter()));
   }
 
   @Nullable

@@ -23,6 +23,7 @@ import com.google.cloud.tools.jib.configuration.BuildConfiguration;
 import com.google.cloud.tools.jib.docker.DockerClient;
 import com.google.cloud.tools.jib.docker.ImageToTarballTranslator;
 import com.google.cloud.tools.jib.event.events.LogEvent;
+import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 import com.google.cloud.tools.jib.image.DescriptorDigest;
 import com.google.cloud.tools.jib.image.Image;
 import com.google.cloud.tools.jib.image.ImageReference;
@@ -44,6 +45,8 @@ class LoadDockerStep implements AsyncStep<BuildResult>, Callable<BuildResult> {
 
   private final DockerClient dockerClient;
   private final BuildConfiguration buildConfiguration;
+  private final ProgressAllocation parentProgressAllocation;
+
   private final PullAndCacheBaseImageLayersStep pullAndCacheBaseImageLayersStep;
   private final ImmutableList<BuildAndCacheApplicationLayerStep> buildAndCacheApplicationLayerSteps;
   private final BuildImageStep buildImageStep;
@@ -55,12 +58,14 @@ class LoadDockerStep implements AsyncStep<BuildResult>, Callable<BuildResult> {
       ListeningExecutorService listeningExecutorService,
       DockerClient dockerClient,
       BuildConfiguration buildConfiguration,
+      ProgressAllocation parentProgressAllocation,
       PullAndCacheBaseImageLayersStep pullAndCacheBaseImageLayersStep,
       ImmutableList<BuildAndCacheApplicationLayerStep> buildAndCacheApplicationLayerSteps,
       BuildImageStep buildImageStep) {
     this.listeningExecutorService = listeningExecutorService;
     this.dockerClient = dockerClient;
     this.buildConfiguration = buildConfiguration;
+    this.parentProgressAllocation = parentProgressAllocation;
     this.pullAndCacheBaseImageLayersStep = pullAndCacheBaseImageLayersStep;
     this.buildAndCacheApplicationLayerSteps = buildAndCacheApplicationLayerSteps;
     this.buildImageStep = buildImageStep;
@@ -89,12 +94,15 @@ class LoadDockerStep implements AsyncStep<BuildResult>, Callable<BuildResult> {
     }
     dependenciesBuilder.add(NonBlockingSteps.get(buildImageStep).getFuture());
     return Futures.whenAllSucceed(dependenciesBuilder.build())
-        .call(this::afterPushBaseImageLayerFuturesFuture, listeningExecutorService)
+        .call(this::loadToDocker, listeningExecutorService)
         .get();
   }
 
-  private BuildResult afterPushBaseImageLayerFuturesFuture()
+  private BuildResult loadToDocker()
       throws ExecutionException, InterruptedException, IOException {
+    ProgressAllocation progressAllocation = parentProgressAllocation.allocate("load to Docker daemon", 1);
+    buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(0));
+
     Image<Layer> image = NonBlockingSteps.get(NonBlockingSteps.get(buildImageStep));
     ImageReference targetImageReference =
         buildConfiguration.getTargetImageConfiguration().getImage();
@@ -129,6 +137,8 @@ class LoadDockerStep implements AsyncStep<BuildResult>, Callable<BuildResult> {
             .writeTo(ByteStreams.nullOutputStream())
             .getDigest();
     DescriptorDigest imageId = containerConfigurationBlobDescriptor.getDigest();
+
+    buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(1));
 
     return new BuildResult(imageDigest, imageId);
   }

@@ -23,6 +23,7 @@ import com.google.cloud.tools.jib.builder.TimerEventDispatcher;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
 import com.google.cloud.tools.jib.configuration.ContainerConfiguration;
 import com.google.cloud.tools.jib.event.events.LogEvent;
+import com.google.cloud.tools.jib.event.events.ProgressEvent.ProgressAllocation;
 import com.google.cloud.tools.jib.image.Image;
 import com.google.cloud.tools.jib.image.Layer;
 import com.google.cloud.tools.jib.image.LayerPropertyNotFoundException;
@@ -48,6 +49,7 @@ class BuildImageStep
   private final PullBaseImageStep pullBaseImageStep;
   private final PullAndCacheBaseImageLayersStep pullAndCacheBaseImageLayersStep;
   private final ImmutableList<BuildAndCacheApplicationLayerStep> buildAndCacheApplicationLayerSteps;
+  private final ProgressAllocation parentProgressAllocation;
 
   private final ListeningExecutorService listeningExecutorService;
   private final ListenableFuture<AsyncStep<Image<Layer>>> listenableFuture;
@@ -57,12 +59,14 @@ class BuildImageStep
       BuildConfiguration buildConfiguration,
       PullBaseImageStep pullBaseImageStep,
       PullAndCacheBaseImageLayersStep pullAndCacheBaseImageLayersStep,
-      ImmutableList<BuildAndCacheApplicationLayerStep> buildAndCacheApplicationLayerSteps) {
+      ImmutableList<BuildAndCacheApplicationLayerStep> buildAndCacheApplicationLayerSteps,
+      ProgressAllocation parentProgressAllocation) {
     this.listeningExecutorService = listeningExecutorService;
     this.buildConfiguration = buildConfiguration;
     this.pullBaseImageStep = pullBaseImageStep;
     this.pullAndCacheBaseImageLayersStep = pullAndCacheBaseImageLayersStep;
     this.buildAndCacheApplicationLayerSteps = buildAndCacheApplicationLayerSteps;
+    this.parentProgressAllocation = parentProgressAllocation;
 
     listenableFuture =
         Futures.whenAllSucceed(
@@ -95,6 +99,9 @@ class BuildImageStep
 
   private Image<Layer> afterCachedLayerSteps()
       throws ExecutionException, LayerPropertyNotFoundException {
+    ProgressAllocation progressAllocation = parentProgressAllocation.allocate("build image format", 1);
+    buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(0));
+
     try (TimerEventDispatcher ignored =
         new TimerEventDispatcher(buildConfiguration.getEventDispatcher(), DESCRIPTION)) {
       // Constructs the image.
@@ -165,7 +172,11 @@ class BuildImageStep
       }
 
       // Gets the container configuration content descriptor.
-      return imageBuilder.build();
+      Image<Layer> image = imageBuilder.build();
+
+      buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(1));
+
+      return image;
     }
   }
 

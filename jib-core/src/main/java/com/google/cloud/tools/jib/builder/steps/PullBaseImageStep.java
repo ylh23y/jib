@@ -122,7 +122,11 @@ class PullBaseImageStep
         new TimerEventDispatcher(buildConfiguration.getEventDispatcher(), DESCRIPTION)) {
       // First, try with no credentials.
       try {
-        return new BaseImageWithAuthorization(pullBaseImage(null), null);
+        BaseImageWithAuthorization baseImageWithAuthorization = new BaseImageWithAuthorization(pullBaseImage(null), null);
+
+        buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(1));
+
+        return baseImageWithAuthorization;
 
       } catch (RegistryUnauthorizedException ex) {
         buildConfiguration
@@ -148,8 +152,12 @@ class PullBaseImageStep
                     registryCredential.getUsername(), registryCredential.getPassword());
 
         try {
-          return new BaseImageWithAuthorization(
+          BaseImageWithAuthorization baseImageWithAuthorization = new BaseImageWithAuthorization(
               pullBaseImage(registryAuthorization), registryAuthorization);
+
+          buildConfiguration.getEventDispatcher().dispatch(progressAllocation.makeProgressEvent(1));
+
+          return baseImageWithAuthorization;
 
         } catch (RegistryUnauthorizedException registryUnauthorizedException) {
           // The registry requires us to authenticate using the Docker Token Authentication.
