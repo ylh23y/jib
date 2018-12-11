@@ -19,8 +19,12 @@ package com.google.cloud.tools.jib.maven;
 import com.google.cloud.tools.jib.configuration.FilePermissions;
 import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.cloud.tools.jib.event.JibEventType;
+import com.google.cloud.tools.jib.event.events.LogEvent;
+import com.google.cloud.tools.jib.event.progress.ProgressEventHandler;
 import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
+import com.google.cloud.tools.jib.plugins.common.AnsiLoggerWithFooter;
+import com.google.cloud.tools.jib.plugins.common.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
 import com.google.common.annotations.VisibleForTesting;
@@ -28,6 +32,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.apache.maven.model.Plugin;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -82,9 +87,62 @@ public class MavenProjectProperties implements ProjectProperties {
   }
 
   private static EventHandlers makeEventHandlers(Log log) {
+    // LogEventHandler logEventHandler = new LogEventHandler(log);
+
+    AnsiLoggerWithFooter ansiLoggerWithFooter = new AnsiLoggerWithFooter(log::info);
+    Consumer<LogEvent> logEventHandler =
+        logEvent -> {
+          switch (logEvent.getLevel()) {
+            case LIFECYCLE:
+              if (log.isInfoEnabled()) {
+                ansiLoggerWithFooter.log(log::info, logEvent.getMessage());
+              }
+              break;
+
+            case DEBUG:
+              if (log.isDebugEnabled()) {
+                ansiLoggerWithFooter.log(log::debug, logEvent.getMessage());
+              }
+              break;
+
+            case ERROR:
+              if (log.isErrorEnabled()) {
+                ansiLoggerWithFooter.log(log::error, logEvent.getMessage());
+              }
+              break;
+
+            case INFO:
+              // Use lifecycle for progress-indicating messages.
+              if (log.isDebugEnabled()) {
+                ansiLoggerWithFooter.log(log::debug, logEvent.getMessage());
+              }
+              break;
+
+            case WARN:
+              if (log.isWarnEnabled()) {
+                ansiLoggerWithFooter.log(log::warn, logEvent.getMessage());
+              }
+              break;
+
+            default:
+              throw new IllegalStateException("Unknown LogEvent.Level: " + logEvent.getLevel());
+          }
+        };
+
+    ProgressEventHandler progressEventHandler =
+        new ProgressEventHandler(
+            update ->
+                ansiLoggerWithFooter.setFooter(
+                    ProgressDisplayGenerator.generateProgressDisplay(
+                        update.getProgress(), update.getUnfinishedAllocations())));
+
     return new EventHandlers()
-        .add(JibEventType.LOGGING, new LogEventHandler(log))
-        .add(JibEventType.TIMING, new TimerEventHandler(log::debug));
+        .add(JibEventType.LOGGING, logEventHandler)
+        .add(
+            JibEventType.TIMING,
+            new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
+        .add(JibEventType.PROGRESS, progressEventHandler)
+        .add(JibEventType.SUCCESS, successEvent -> ansiLoggerWithFooter.shutDown());
   }
 
   private final MavenProject project;

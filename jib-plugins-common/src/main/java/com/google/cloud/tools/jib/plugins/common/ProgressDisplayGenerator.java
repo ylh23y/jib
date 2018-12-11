@@ -55,9 +55,11 @@ public class ProgressDisplayGenerator {
       double progress, List<Allocation> unfinishedAllocations) {
     List<String> lines = new ArrayList<>();
 
+    lines.add("");
     lines.add(BOLD+HEADER+UNBOLD);
     lines.add(BOLD+generateProgressBar(progress)+UNBOLD);
     lines.addAll(generateUnfinishedTasks(unfinishedAllocations));
+    lines.add("");
 
     return lines;
   }

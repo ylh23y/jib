@@ -85,7 +85,6 @@ class GradleProjectProperties implements ProjectProperties {
     // LogEventHandler logEventHandler = new LogEventHandler(logger);
 
     AnsiLoggerWithFooter ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle);
-    ansiLoggerWithFooter.setFooter(Arrays.asList("THIS IS THE FOOTER", "WITH TWO LINES"));
     Consumer<LogEvent> logEventHandler =
         logEvent -> {
           switch (logEvent.getLevel()) {
@@ -136,7 +135,10 @@ class GradleProjectProperties implements ProjectProperties {
         .add(
             JibEventType.TIMING,
             new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
-        .add(JibEventType.PROGRESS, progressEventHandler);
+        .add(JibEventType.PROGRESS, progressEventHandler)
+        .add(
+            JibEventType.SUCCESS,
+            successEvent -> ansiLoggerWithFooter.shutDown());
   }
 
   @Nullable

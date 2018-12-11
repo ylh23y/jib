@@ -17,11 +17,14 @@
 package com.google.cloud.tools.jib.plugins.common;
 
 import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.MoreExecutors;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -33,11 +36,11 @@ public class AnsiLoggerWithFooter {
 
   /** ANSI escape sequence for moving the cursor up one line. */
   private static final String CURSOR_UP_SEQUENCE = "\033[1A";
-  // private static final String CURSOR_UP_SEQUENCE = "[UP]";
 
   /** ANSI escape sequence for erasing to end of display. */
   private static final String ERASE_DISPLAY_BELOW = "\033[0J";
-  // private static final String ERASE_DISPLAY_BELOW = "[ED]";
+
+  private static final Duration EXECUTOR_SHUTDOWN_WAIT = Duration.ofSeconds(1);
 
   private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
@@ -47,6 +50,18 @@ public class AnsiLoggerWithFooter {
 
   public AnsiLoggerWithFooter(Consumer<String> plainLogger) {
     this.plainLogger = plainLogger;
+  }
+
+  public void shutDown() {
+    executorService.shutdown();
+    try {
+      if (!executorService.awaitTermination(EXECUTOR_SHUTDOWN_WAIT.getSeconds(), TimeUnit.SECONDS)) {
+        executorService.shutdownNow();
+      }
+
+    } catch (InterruptedException ex) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   /**
