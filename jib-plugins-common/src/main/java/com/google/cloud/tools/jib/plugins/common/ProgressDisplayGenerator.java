@@ -30,10 +30,10 @@ import java.util.Set;
  *
  * <p>Executing tasks...<br>
  * [================= ] 72.5% complete<br>
- * > task 1 running<br>
- * > task 3 running
+ * &gt; task 1 running<br>
+ * &gt; task 3 running
  */
-class ProgressDisplayGenerator {
+public class ProgressDisplayGenerator {
 
   /** Line above progress bar. */
   private static final String HEADER = "Executing tasks:";
@@ -48,7 +48,7 @@ class ProgressDisplayGenerator {
    * @param unfinishedAllocations the unfinished {@link Allocation}s
    * @return the progress display as a list of lines
    */
-  static List<String> generateProgressDisplay(
+  public static List<String> generateProgressDisplay(
       double progress, List<Allocation> unfinishedAllocations) {
     List<String> lines = new ArrayList<>();
 

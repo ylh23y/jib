@@ -20,9 +20,12 @@ import com.google.cloud.tools.jib.configuration.FilePermissions;
 import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.cloud.tools.jib.event.JibEventType;
 import com.google.cloud.tools.jib.event.events.LogEvent;
+import com.google.cloud.tools.jib.event.progress.ProgressEventHandler;
 import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
+import com.google.cloud.tools.jib.plugins.common.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
+import com.google.cloud.tools.jib.plugins.common.SingleThreadedLogger;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.File;
@@ -30,11 +33,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -77,12 +83,58 @@ class GradleProjectProperties implements ProjectProperties {
   }
 
   private static EventHandlers makeEventHandlers(Logger logger) {
-    LogEventHandler logEventHandler = new LogEventHandler(logger);
+    // LogEventHandler logEventHandler = new LogEventHandler(logger);
+
+    SingleThreadedLogger singleThreadedLogger = new SingleThreadedLogger(logger::lifecycle);
+    singleThreadedLogger.setFooter(Arrays.asList("THIS IS THE FOOTER", "WITH TWO LINES"));
+    Consumer<LogEvent> logEventHandler = logEvent -> {
+      switch (logEvent.getLevel()) {
+        case LIFECYCLE:
+          if (logger.isLifecycleEnabled()) {
+            singleThreadedLogger.log(logger::lifecycle, logEvent.getMessage());
+          }
+          break;
+
+        case DEBUG:
+          if (logger.isDebugEnabled()) {
+            singleThreadedLogger.log(logger::debug, logEvent.getMessage());
+          }
+          break;
+
+        case ERROR:
+          if (logger.isErrorEnabled()) {
+            singleThreadedLogger.log(logger::error, logEvent.getMessage());
+          }
+          break;
+
+        case INFO:
+          if (logger.isInfoEnabled()) {
+            singleThreadedLogger.log(logger::info, logEvent.getMessage());
+          }
+          break;
+
+        case WARN:
+          if (logger.isWarnEnabled()) {
+            singleThreadedLogger.log(logger::warn, "warning: " + logEvent.getMessage());
+          }
+          break;
+
+        default:
+          throw new IllegalStateException("Unknown LogEvent.Level: " + logEvent.getLevel());
+      }
+    };
+
+    ProgressEventHandler progressEventHandler = new ProgressEventHandler(update -> {
+      List<String> footer = ProgressDisplayGenerator.generateProgressDisplay(update.getProgress(), update.getUnfinishedAllocations());
+      singleThreadedLogger.setFooter(footer);
+    });
+
     return new EventHandlers()
         .add(JibEventType.LOGGING, logEventHandler)
         .add(
             JibEventType.TIMING,
-            new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))));
+            new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
+        .add(JibEventType.PROGRESS, progressEventHandler);
   }
 
   @Nullable

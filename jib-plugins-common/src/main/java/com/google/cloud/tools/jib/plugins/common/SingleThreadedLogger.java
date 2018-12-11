@@ -28,13 +28,15 @@ import java.util.function.Consumer;
  * Keeps all log messages in a sequential, deterministic order along with an additional footer that
  * always appears below log messages.
  */
-class SingleThreadedLogger {
+public class SingleThreadedLogger {
 
   /** ANSI escape sequence for moving the cursor up one line. */
   private static final String CURSOR_UP_SEQUENCE = "\033[1A";
+  // private static final String CURSOR_UP_SEQUENCE = "[UP]";
 
   /** ANSI escape sequence for erasing to end of display. */
   private static final String ERASE_DISPLAY_BELOW = "\033[0J";
+  // private static final String ERASE_DISPLAY_BELOW = "[ED]";
 
   private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
@@ -42,57 +44,65 @@ class SingleThreadedLogger {
 
   private List<String> footerLines = Collections.emptyList();
 
-  SingleThreadedLogger(Consumer<String> plainLogger) {
+  public SingleThreadedLogger(Consumer<String> plainLogger) {
     this.plainLogger = plainLogger;
   }
 
   /**
    * Runs {@code messageLogger} asynchronously.
    *
-   * @param messageLogger the {@link Runnable} intended to synchronously log a message to the
+   * @param messageLogger the {@link Consumer} intended to synchronously log a message to the
    *     console
+   * @param message the message to log with {@code messageLogger}
    * @return a {@link Future} to track completion
    */
-  public Future<Void> log(Runnable messageLogger) {
-    return log(messageLogger, footerLines);
+  public Future<Void> log(Consumer<String> messageLogger, String message) {
+    return log(messageLogger, message, footerLines);
   }
 
   /**
    * Sets the footer asynchronously. This will replace the previously-printed footer with the new
-   * {@code footerLines}.
+   * {@code newFooterLines}.
    *
-   * @param footerLines the footer, with each line as an element (no newline at end)
+   * @param newFooterLines the footer, with each line as an element (no newline at end)
    * @return a {@link Future} to track completion
    */
-  public Future<Void> setFooter(List<String> footerLines) {
-    if (footerLines.equals(this.footerLines)) {
+  public Future<Void> setFooter(List<String> newFooterLines) {
+    if (newFooterLines.equals(footerLines)) {
       return Futures.immediateFuture(null);
     }
 
-    return log(() -> {}, footerLines);
+    return log(ignored -> {}, "", newFooterLines);
   }
 
-  private Future<Void> log(Runnable messageLogger, List<String> newFooterLines) {
+  private Future<Void> log(Consumer<String> messageLogger, String message, List<String> newFooterLines) {
     return executorService.submit(
         () -> {
-          StringBuilder plainLogBuilder = new StringBuilder();
+          if (footerLines.size() > 0) {
+            StringBuilder footerEraserBuilder = new StringBuilder();
 
-          // Moves the cursor up to the start of the footer.
-          // TODO: Optimize to single init.
-          for (int i = 0; i < this.footerLines.size(); i++) {
-            // Moves cursor up.
-            plainLogBuilder.append(CURSOR_UP_SEQUENCE);
+            // Moves the cursor up to the start of the footer.
+            // TODO: Optimize to single init.
+            for (int i = 0; i < footerLines.size(); i++) {
+              // Moves cursor up.
+              footerEraserBuilder.append(CURSOR_UP_SEQUENCE);
+            }
+
+            // Erases everything below cursor.
+            footerEraserBuilder.append(ERASE_DISPLAY_BELOW);
+
+            plainLogger.accept(footerEraserBuilder.toString());
           }
 
-          // Erases everything below cursor.
-          plainLogBuilder.append(ERASE_DISPLAY_BELOW);
-
           // Writes out logMessage and footer.
-          plainLogger.accept(plainLogBuilder.toString());
-          messageLogger.run();
-          plainLogger.accept(String.join("\n", newFooterLines));
+          String realMessage = message;
+          if (footerLines.size() > 0) {
+            realMessage = CURSOR_UP_SEQUENCE + realMessage;
+          }
+          messageLogger.accept(realMessage);
+          newFooterLines.forEach(plainLogger);
 
-          this.footerLines = newFooterLines;
+          footerLines = newFooterLines;
 
           return null;
         });
