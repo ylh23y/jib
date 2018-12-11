@@ -26,9 +26,10 @@ import java.util.function.Consumer;
 
 /**
  * Keeps all log messages in a sequential, deterministic order along with an additional footer that
- * always appears below log messages.
+ * always appears below log messages. This is intended to log both the messages and the footer to
+ * the same console.
  */
-public class SingleThreadedLogger {
+public class AnsiLoggerWithFooter {
 
   /** ANSI escape sequence for moving the cursor up one line. */
   private static final String CURSOR_UP_SEQUENCE = "\033[1A";
@@ -44,7 +45,7 @@ public class SingleThreadedLogger {
 
   private List<String> footerLines = Collections.emptyList();
 
-  public SingleThreadedLogger(Consumer<String> plainLogger) {
+  public AnsiLoggerWithFooter(Consumer<String> plainLogger) {
     this.plainLogger = plainLogger;
   }
 

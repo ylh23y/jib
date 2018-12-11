@@ -18,7 +18,6 @@ package com.google.cloud.tools.jib.event.progress;
 
 import com.google.cloud.tools.jib.event.events.ProgressEvent;
 import com.google.common.collect.ImmutableList;
-import java.util.List;
 import java.util.concurrent.atomic.DoubleAdder;
 import java.util.function.Consumer;
 
@@ -90,7 +89,8 @@ public class ProgressEventHandler implements Consumer<ProgressEvent> {
 
     if (completionTracker.updateProgress(allocation, progressUnits)) {
       // Note: Could produce false positives.
-      updateNotifier.accept(new Update(progress.sum(), completionTracker.getUnfinishedAllocations()));
+      updateNotifier.accept(
+          new Update(progress.sum(), completionTracker.getUnfinishedAllocations()));
     }
   }
 }

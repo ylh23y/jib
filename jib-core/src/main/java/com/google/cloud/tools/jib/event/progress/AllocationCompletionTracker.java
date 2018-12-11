@@ -18,8 +18,6 @@ package com.google.cloud.tools.jib.event.progress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -123,7 +121,8 @@ class AllocationCompletionTracker {
       }
     }
 
-    ImmutableList.Builder<Allocation> unfinishedAllocations = ImmutableList.builderWithExpectedSize(unfinishedInsertionOrderUnits.size());
+    ImmutableList.Builder<Allocation> unfinishedAllocations =
+        ImmutableList.builderWithExpectedSize(unfinishedInsertionOrderUnits.size());
     while (!unfinishedInsertionOrderUnits.isEmpty()) {
       unfinishedAllocations.add(unfinishedInsertionOrderUnits.remove().allocation);
     }

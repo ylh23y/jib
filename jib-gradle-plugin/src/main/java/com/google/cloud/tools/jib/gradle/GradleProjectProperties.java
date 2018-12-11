@@ -25,7 +25,7 @@ import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
 import com.google.cloud.tools.jib.plugins.common.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
-import com.google.cloud.tools.jib.plugins.common.SingleThreadedLogger;
+import com.google.cloud.tools.jib.plugins.common.AnsiLoggerWithFooter;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.File;
@@ -85,37 +85,37 @@ class GradleProjectProperties implements ProjectProperties {
   private static EventHandlers makeEventHandlers(Logger logger) {
     // LogEventHandler logEventHandler = new LogEventHandler(logger);
 
-    SingleThreadedLogger singleThreadedLogger = new SingleThreadedLogger(logger::lifecycle);
-    singleThreadedLogger.setFooter(Arrays.asList("THIS IS THE FOOTER", "WITH TWO LINES"));
+    AnsiLoggerWithFooter ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle);
+    ansiLoggerWithFooter.setFooter(Arrays.asList("THIS IS THE FOOTER", "WITH TWO LINES"));
     Consumer<LogEvent> logEventHandler = logEvent -> {
       switch (logEvent.getLevel()) {
         case LIFECYCLE:
           if (logger.isLifecycleEnabled()) {
-            singleThreadedLogger.log(logger::lifecycle, logEvent.getMessage());
+            ansiLoggerWithFooter.log(logger::lifecycle, logEvent.getMessage());
           }
           break;
 
         case DEBUG:
           if (logger.isDebugEnabled()) {
-            singleThreadedLogger.log(logger::debug, logEvent.getMessage());
+            ansiLoggerWithFooter.log(logger::debug, logEvent.getMessage());
           }
           break;
 
         case ERROR:
           if (logger.isErrorEnabled()) {
-            singleThreadedLogger.log(logger::error, logEvent.getMessage());
+            ansiLoggerWithFooter.log(logger::error, logEvent.getMessage());
           }
           break;
 
         case INFO:
           if (logger.isInfoEnabled()) {
-            singleThreadedLogger.log(logger::info, logEvent.getMessage());
+            ansiLoggerWithFooter.log(logger::info, logEvent.getMessage());
           }
           break;
 
         case WARN:
           if (logger.isWarnEnabled()) {
-            singleThreadedLogger.log(logger::warn, "warning: " + logEvent.getMessage());
+            ansiLoggerWithFooter.log(logger::warn, "warning: " + logEvent.getMessage());
           }
           break;
 
@@ -126,7 +126,7 @@ class GradleProjectProperties implements ProjectProperties {
 
     ProgressEventHandler progressEventHandler = new ProgressEventHandler(update -> {
       List<String> footer = ProgressDisplayGenerator.generateProgressDisplay(update.getProgress(), update.getUnfinishedAllocations());
-      singleThreadedLogger.setFooter(footer);
+      ansiLoggerWithFooter.setFooter(footer);
     });
 
     return new EventHandlers()
