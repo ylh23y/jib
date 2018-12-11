@@ -58,25 +58,6 @@ public class AnsiLoggerWithFooter {
    * @return a {@link Future} to track completion
    */
   public Future<Void> log(Consumer<String> messageLogger, String message) {
-    return log(messageLogger, message, footerLines);
-  }
-
-  /**
-   * Sets the footer asynchronously. This will replace the previously-printed footer with the new
-   * {@code newFooterLines}.
-   *
-   * @param newFooterLines the footer, with each line as an element (no newline at end)
-   * @return a {@link Future} to track completion
-   */
-  public Future<Void> setFooter(List<String> newFooterLines) {
-    if (newFooterLines.equals(footerLines)) {
-      return Futures.immediateFuture(null);
-    }
-
-    return log(ignored -> {}, "", newFooterLines);
-  }
-
-  private Future<Void> log(Consumer<String> messageLogger, String message, List<String> newFooterLines) {
     return executorService.submit(
         () -> {
           if (footerLines.size() > 0) {
@@ -101,11 +82,52 @@ public class AnsiLoggerWithFooter {
             realMessage = CURSOR_UP_SEQUENCE + realMessage;
           }
           messageLogger.accept(realMessage);
-          newFooterLines.forEach(plainLogger);
-
-          footerLines = newFooterLines;
+          footerLines.forEach(plainLogger);
 
           return null;
         });
+  }
+
+  /**
+   * Sets the footer asynchronously. This will replace the previously-printed footer with the new
+   * {@code newFooterLines}.
+   *
+   * @param newFooterLines the footer, with each line as an element (no newline at end)
+   * @return a {@link Future} to track completion
+   */
+  public Future<Void> setFooter(List<String> newFooterLines) {
+    if (newFooterLines.equals(footerLines)) {
+      return Futures.immediateFuture(null);
+    }
+
+    return executorService.submit(() -> {
+      StringBuilder footer = new StringBuilder();
+
+      if (footerLines.size() > 0) {
+        StringBuilder footerEraserBuilder = new StringBuilder();
+
+        // Moves the cursor up to the start of the footer.
+        // TODO: Optimize to single init.
+        for (int i = 0; i < footerLines.size(); i++) {
+          // Moves cursor up.
+          footerEraserBuilder.append(CURSOR_UP_SEQUENCE);
+        }
+
+        // Erases everything below cursor.
+        footerEraserBuilder.append(ERASE_DISPLAY_BELOW);
+
+        footer.append(footerEraserBuilder);
+      }
+
+      footer.append(String.join("\n", newFooterLines));
+
+      if (footer.length() > 0) {
+        plainLogger.accept(footer.toString());
+      }
+
+      footerLines = newFooterLines;
+
+      return null;
+    });
   }
 }

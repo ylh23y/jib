@@ -23,9 +23,9 @@ import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.event.progress.ProgressEventHandler;
 import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
+import com.google.cloud.tools.jib.plugins.common.AnsiLoggerWithFooter;
 import com.google.cloud.tools.jib.plugins.common.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
-import com.google.cloud.tools.jib.plugins.common.AnsiLoggerWithFooter;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.File;
@@ -34,7 +34,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,47 +86,50 @@ class GradleProjectProperties implements ProjectProperties {
 
     AnsiLoggerWithFooter ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle);
     ansiLoggerWithFooter.setFooter(Arrays.asList("THIS IS THE FOOTER", "WITH TWO LINES"));
-    Consumer<LogEvent> logEventHandler = logEvent -> {
-      switch (logEvent.getLevel()) {
-        case LIFECYCLE:
-          if (logger.isLifecycleEnabled()) {
-            ansiLoggerWithFooter.log(logger::lifecycle, logEvent.getMessage());
+    Consumer<LogEvent> logEventHandler =
+        logEvent -> {
+          switch (logEvent.getLevel()) {
+            case LIFECYCLE:
+              if (logger.isLifecycleEnabled()) {
+                ansiLoggerWithFooter.log(logger::lifecycle, logEvent.getMessage());
+              }
+              break;
+
+            case DEBUG:
+              if (logger.isDebugEnabled()) {
+                ansiLoggerWithFooter.log(logger::debug, logEvent.getMessage());
+              }
+              break;
+
+            case ERROR:
+              if (logger.isErrorEnabled()) {
+                ansiLoggerWithFooter.log(logger::error, logEvent.getMessage());
+              }
+              break;
+
+            case INFO:
+              if (logger.isInfoEnabled()) {
+                ansiLoggerWithFooter.log(logger::info, logEvent.getMessage());
+              }
+              break;
+
+            case WARN:
+              if (logger.isWarnEnabled()) {
+                ansiLoggerWithFooter.log(logger::warn, "warning: " + logEvent.getMessage());
+              }
+              break;
+
+            default:
+              throw new IllegalStateException("Unknown LogEvent.Level: " + logEvent.getLevel());
           }
-          break;
+        };
 
-        case DEBUG:
-          if (logger.isDebugEnabled()) {
-            ansiLoggerWithFooter.log(logger::debug, logEvent.getMessage());
-          }
-          break;
-
-        case ERROR:
-          if (logger.isErrorEnabled()) {
-            ansiLoggerWithFooter.log(logger::error, logEvent.getMessage());
-          }
-          break;
-
-        case INFO:
-          if (logger.isInfoEnabled()) {
-            ansiLoggerWithFooter.log(logger::info, logEvent.getMessage());
-          }
-          break;
-
-        case WARN:
-          if (logger.isWarnEnabled()) {
-            ansiLoggerWithFooter.log(logger::warn, "warning: " + logEvent.getMessage());
-          }
-          break;
-
-        default:
-          throw new IllegalStateException("Unknown LogEvent.Level: " + logEvent.getLevel());
-      }
-    };
-
-    ProgressEventHandler progressEventHandler = new ProgressEventHandler(update -> {
-      List<String> footer = ProgressDisplayGenerator.generateProgressDisplay(update.getProgress(), update.getUnfinishedAllocations());
-      ansiLoggerWithFooter.setFooter(footer);
-    });
+    ProgressEventHandler progressEventHandler =
+        new ProgressEventHandler(
+            update ->
+                ansiLoggerWithFooter.setFooter(
+                    ProgressDisplayGenerator.generateProgressDisplay(
+                        update.getProgress(), update.getUnfinishedAllocations())));
 
     return new EventHandlers()
         .add(JibEventType.LOGGING, logEventHandler)
