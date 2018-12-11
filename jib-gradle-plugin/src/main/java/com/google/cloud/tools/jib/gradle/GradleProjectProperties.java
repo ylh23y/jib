@@ -33,7 +33,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -125,10 +124,13 @@ class GradleProjectProperties implements ProjectProperties {
 
     ProgressEventHandler progressEventHandler =
         new ProgressEventHandler(
-            update ->
-                ansiLoggerWithFooter.setFooter(
-                    ProgressDisplayGenerator.generateProgressDisplay(
-                        update.getProgress(), update.getUnfinishedAllocations())));
+            update -> {
+              List<String> footer =
+                  ProgressDisplayGenerator.generateProgressDisplay(
+                      update.getProgress(), update.getUnfinishedAllocations());
+              footer.add("");
+              ansiLoggerWithFooter.setFooter(footer);
+            });
 
     return new EventHandlers()
         .add(JibEventType.LOGGING, logEventHandler)
@@ -136,9 +138,7 @@ class GradleProjectProperties implements ProjectProperties {
             JibEventType.TIMING,
             new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
         .add(JibEventType.PROGRESS, progressEventHandler)
-        .add(
-            JibEventType.SUCCESS,
-            successEvent -> ansiLoggerWithFooter.shutDown());
+        .add(JibEventType.SUCCESS, successEvent -> ansiLoggerWithFooter.shutDown());
   }
 
   @Nullable

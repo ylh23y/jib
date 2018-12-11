@@ -116,8 +116,6 @@ public class AnsiLoggerWithFooter {
     }
 
     return executorService.submit(() -> {
-      StringBuilder footer = new StringBuilder();
-
       if (footerLines.size() > 0) {
         StringBuilder footerEraserBuilder = new StringBuilder();
 
@@ -131,13 +129,17 @@ public class AnsiLoggerWithFooter {
         // Erases everything below cursor.
         footerEraserBuilder.append(ERASE_DISPLAY_BELOW);
 
-        footer.append(footerEraserBuilder);
+        plainLogger.accept(footerEraserBuilder.toString());
       }
 
-      footer.append(String.join("\n", newFooterLines));
-
-      if (footer.length() > 0) {
-        plainLogger.accept(footer.toString());
+      boolean isFirst = true;
+      for (String newFooterLine : newFooterLines) {
+        String toPrint = newFooterLine;
+        if (isFirst) {
+          toPrint = CURSOR_UP_SEQUENCE + newFooterLine;
+          isFirst = false;
+        }
+        plainLogger.accept(toPrint);
       }
 
       footerLines = newFooterLines;
