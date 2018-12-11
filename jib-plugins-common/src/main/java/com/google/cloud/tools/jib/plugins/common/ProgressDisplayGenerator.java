@@ -38,6 +38,9 @@ public class ProgressDisplayGenerator {
   /** Line above progress bar. */
   private static final String HEADER = "Executing tasks:";
 
+  private static final String BOLD = "\033[1m";
+  private static final String UNBOLD = "\033[0m";
+
   /** Maximum number of bars in the progress display. */
   private static final int PROGRESS_BAR_COUNT = 50;
 
@@ -52,8 +55,8 @@ public class ProgressDisplayGenerator {
       double progress, List<Allocation> unfinishedAllocations) {
     List<String> lines = new ArrayList<>();
 
-    lines.add(HEADER);
-    lines.add(generateProgressBar(progress));
+    lines.add(BOLD+HEADER+UNBOLD);
+    lines.add(BOLD+generateProgressBar(progress)+UNBOLD);
     lines.addAll(generateUnfinishedTasks(unfinishedAllocations));
 
     return lines;
@@ -90,7 +93,7 @@ public class ProgressDisplayGenerator {
   private static List<String> generateUnfinishedTasks(List<Allocation> unfinishedAllocations) {
     List<String> lines = new ArrayList<>();
     for (Allocation unfinishedAllocation : getLeafAllocations(unfinishedAllocations)) {
-      lines.add("> " + unfinishedAllocation.getDescription());
+      lines.add(BOLD+"> " + unfinishedAllocation.getDescription()+UNBOLD);
     }
     return lines;
   }
