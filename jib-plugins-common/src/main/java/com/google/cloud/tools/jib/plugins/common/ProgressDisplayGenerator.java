@@ -54,7 +54,7 @@ public class ProgressDisplayGenerator {
 
     lines.add(HEADER);
     lines.add(generateProgressBar(progress));
-    // lines.addAll(generateUnfinishedTasks(unfinishedAllocations));
+    lines.addAll(generateUnfinishedTasks(unfinishedAllocations));
 
     return lines;
   }
