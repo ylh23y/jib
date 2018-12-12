@@ -93,22 +93,20 @@ public class AnsiLoggerWithFooter {
    * @param messageLogger the {@link Consumer} intended to synchronously log a message to the
    *     console. {@code messageLogger} should print a new line at the end.
    * @param message the message to log with {@code messageLogger}
-   * @return a {@link Future} to track completion
    */
-  public Future<Void> log(Consumer<String> messageLogger, String message) {
-    return executorService.submit(
+  public void log(Consumer<String> messageLogger, String message) {
+    executorService.execute(
         () -> {
           boolean didErase = eraseFooter();
 
           // If a previous footer was erased, the message needs to go up a line.
           String messagePrefix = didErase ? CURSOR_UP_SEQUENCE : "";
+          // String messagePrefix = "";
           messageLogger.accept(messagePrefix + message);
 
           for (String footerLine : footerLines) {
             plainPrinter.accept(BOLD + footerLine + UNBOLD);
           }
-
-          return null;
         });
   }
 
@@ -119,19 +117,19 @@ public class AnsiLoggerWithFooter {
    * <p>The footer is printed in <strong>bold</strong>.
    *
    * @param newFooterLines the footer, with each line as an element (no newline at end)
-   * @return a {@link Future} to track completion
    */
-  public Future<Void> setFooter(List<String> newFooterLines) {
+  public void setFooter(List<String> newFooterLines) {
     if (newFooterLines.equals(footerLines)) {
-      return Futures.immediateFuture(null);
+      return;
     }
 
-    return executorService.submit(
+    executorService.execute(
         () -> {
           boolean didErase = eraseFooter();
 
           // If a previous footer was erased, the first new footer line needs to go up a line.
           String newFooterPrefix = didErase ? CURSOR_UP_SEQUENCE : "";
+          // String newFooterPrefix = "";
 
           for (String newFooterLine : newFooterLines) {
             plainPrinter.accept(newFooterPrefix + BOLD + newFooterLine + UNBOLD);
@@ -139,8 +137,6 @@ public class AnsiLoggerWithFooter {
           }
 
           footerLines = newFooterLines;
-
-          return null;
         });
   }
 
