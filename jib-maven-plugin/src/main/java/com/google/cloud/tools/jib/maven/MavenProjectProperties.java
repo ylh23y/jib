@@ -126,7 +126,7 @@ public class MavenProjectProperties implements ProjectProperties {
 
   @Override
   public void waitForLoggingThread() {
-    ansiLoggerWithFooter.shutDown().awaitTermination();
+    ansiLoggerWithFooter.shutDownAndAwaitTermination();
   }
 
   @Override
