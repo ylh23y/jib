@@ -37,7 +37,7 @@ public class AnsiLoggerWithFooterTest {
   @Test
   public void testLog_noFooter() throws InterruptedException, ExecutionException, TimeoutException {
     testAnsiLoggerWithFooter
-        .log(() -> logBuilder.append("message\n"))
+        .log(logBuilder::append, "message\n")
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
 
     Assert.assertEquals("\033[0Jmessage\n", logBuilder.toString());
@@ -50,14 +50,21 @@ public class AnsiLoggerWithFooterTest {
         .setFooter(Collections.singletonList("footer"))
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
     testAnsiLoggerWithFooter
-        .log(() -> logBuilder.append("message\n"))
+        .log(logBuilder::append, "message\n")
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
     testAnsiLoggerWithFooter
-        .log(() -> logBuilder.append("another message\n"))
+        .log(logBuilder::append, "another message\n")
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
 
     Assert.assertEquals(
-        "\033[0Jfooter\033[1A\033[0Jmessage\nfooter\033[1A\033[0Janother message\nfooter",
+        "\033[0J"
+            + "\033[1mfooter\033[0m"
+            + "\033[1A\033[0J"
+            + "message\n"
+            + "\033[1mfooter\033[0m"
+            + "\033[1A\033[0J"
+            + "another message\n"
+            + "\033[1mfooter\033[0m",
         logBuilder.toString());
   }
 
@@ -68,18 +75,28 @@ public class AnsiLoggerWithFooterTest {
         .setFooter(Collections.singletonList("footer"))
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
     testAnsiLoggerWithFooter
-        .log(() -> logBuilder.append("message\n"))
+        .log(logBuilder::append, "message\n")
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
     testAnsiLoggerWithFooter
         .setFooter(Arrays.asList("two line", "footer"))
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
     testAnsiLoggerWithFooter
-        .log(() -> logBuilder.append("another message\n"))
+        .log(logBuilder::append, "another message\n")
         .get(FUTURE_TIMEOUT.getSeconds(), TimeUnit.SECONDS);
 
     Assert.assertEquals(
-        "\033[0Jfooter\033[1A\033[0Jmessage\nfooter\033[1A\033[0Jtwo line\nfooter"
-            + "\033[1A\033[1A\033[0Janother message\ntwo line\nfooter",
+        "\033[0J"
+            + "\033[1mfooter\033[0m"
+            + "\033[1A\033[0J"
+            + "message\n"
+            + "\033[1mfooter\033[0m"
+            + "\033[1A\033[0J"
+            + "\033[1mtwo line\033[0m\n"
+            + "\033[1mfooter\033[0m"
+            + "\033[1A\033[1A\033[0J"
+            + "another message\n"
+            + "\033[1mtwo line\033[0m\n"
+            + "\033[1mfooter\033[0m",
         logBuilder.toString());
   }
 }

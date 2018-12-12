@@ -17,7 +17,6 @@
 package com.google.cloud.tools.jib.plugins.common;
 
 import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.MoreExecutors;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -31,6 +30,8 @@ import java.util.function.Consumer;
  * Keeps all log messages in a sequential, deterministic order along with an additional footer that
  * always appears below log messages. This is intended to log both the messages and the footer to
  * the same console.
+ *
+ * <p>Make sure to call {@link #shutDown} when finished.
  */
 public class AnsiLoggerWithFooter {
 
@@ -39,6 +40,12 @@ public class AnsiLoggerWithFooter {
 
   /** ANSI escape sequence for erasing to end of display. */
   private static final String ERASE_DISPLAY_BELOW = "\033[0J";
+
+  /** ANSI escape sequence for setting all further characters to bold. */
+  private static final String BOLD = "\033[1m";
+
+  /** ANSI escape sequence for setting all further characters to not bold. */
+  private static final String UNBOLD = "\033[0m";
 
   private static final Duration EXECUTOR_SHUTDOWN_WAIT = Duration.ofSeconds(1);
 
@@ -52,13 +59,19 @@ public class AnsiLoggerWithFooter {
     this.plainLogger = plainLogger;
   }
 
-  public void shutDown() {
+  /** Shuts down the {@link #executorService}. */
+  public AnsiLoggerWithFooter shutDown() {
     executorService.shutdown();
+    return this;
+  }
+
+  /** Waits for the {@link #executorService} to terminate. */
+  public void awaitTermination() {
     try {
-      if (!executorService.awaitTermination(EXECUTOR_SHUTDOWN_WAIT.getSeconds(), TimeUnit.SECONDS)) {
+      if (!executorService.awaitTermination(
+          EXECUTOR_SHUTDOWN_WAIT.getSeconds(), TimeUnit.SECONDS)) {
         executorService.shutdownNow();
       }
-
     } catch (InterruptedException ex) {
       Thread.currentThread().interrupt();
     }
@@ -97,7 +110,9 @@ public class AnsiLoggerWithFooter {
             realMessage = CURSOR_UP_SEQUENCE + realMessage;
           }
           messageLogger.accept(realMessage);
-          footerLines.forEach(plainLogger);
+          for (String footerLine : footerLines) {
+            plainLogger.accept(BOLD+footerLine+UNBOLD);
+          }
 
           return null;
         });
@@ -107,6 +122,8 @@ public class AnsiLoggerWithFooter {
    * Sets the footer asynchronously. This will replace the previously-printed footer with the new
    * {@code newFooterLines}.
    *
+   * <p>The footer is printed in <strong>bold</strong>.
+   *
    * @param newFooterLines the footer, with each line as an element (no newline at end)
    * @return a {@link Future} to track completion
    */
@@ -115,36 +132,37 @@ public class AnsiLoggerWithFooter {
       return Futures.immediateFuture(null);
     }
 
-    return executorService.submit(() -> {
-      if (footerLines.size() > 0) {
-        StringBuilder footerEraserBuilder = new StringBuilder();
+    return executorService.submit(
+        () -> {
+          if (footerLines.size() > 0) {
+            StringBuilder footerEraserBuilder = new StringBuilder();
 
-        // Moves the cursor up to the start of the footer.
-        // TODO: Optimize to single init.
-        for (int i = 0; i < footerLines.size(); i++) {
-          // Moves cursor up.
-          footerEraserBuilder.append(CURSOR_UP_SEQUENCE);
-        }
+            // Moves the cursor up to the start of the footer.
+            // TODO: Optimize to single init.
+            for (int i = 0; i < footerLines.size(); i++) {
+              // Moves cursor up.
+              footerEraserBuilder.append(CURSOR_UP_SEQUENCE);
+            }
 
-        // Erases everything below cursor.
-        footerEraserBuilder.append(ERASE_DISPLAY_BELOW);
+            // Erases everything below cursor.
+            footerEraserBuilder.append(ERASE_DISPLAY_BELOW);
 
-        plainLogger.accept(footerEraserBuilder.toString());
-      }
+            plainLogger.accept(footerEraserBuilder.toString());
+          }
 
-      boolean isFirst = true;
-      for (String newFooterLine : newFooterLines) {
-        String toPrint = newFooterLine;
-        if (isFirst) {
-          toPrint = CURSOR_UP_SEQUENCE + newFooterLine;
-          isFirst = false;
-        }
-        plainLogger.accept(toPrint);
-      }
+          boolean isFirst = true;
+          for (String newFooterLine : newFooterLines) {
+            String toPrint = BOLD+newFooterLine+UNBOLD;
+            if (isFirst) {
+              toPrint = CURSOR_UP_SEQUENCE + newFooterLine;
+              isFirst = false;
+            }
+            plainLogger.accept(toPrint);
+          }
 
-      footerLines = newFooterLines;
+          footerLines = newFooterLines;
 
-      return null;
-    });
+          return null;
+        });
   }
 }

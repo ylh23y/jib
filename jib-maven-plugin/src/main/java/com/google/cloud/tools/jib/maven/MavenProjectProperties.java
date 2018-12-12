@@ -142,7 +142,9 @@ public class MavenProjectProperties implements ProjectProperties {
             JibEventType.TIMING,
             new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
         .add(JibEventType.PROGRESS, progressEventHandler)
-        .add(JibEventType.SUCCESS, successEvent -> ansiLoggerWithFooter.shutDown());
+        .add(
+            JibEventType.SUCCESS,
+            successEvent -> ansiLoggerWithFooter.shutDown().awaitTermination());
   }
 
   private final MavenProject project;
