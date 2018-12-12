@@ -65,7 +65,11 @@ public class AnsiLoggerWithFooter {
     this.plainPrinter = plainPrinter;
   }
 
-  /** Shuts down the {@link #executorService}. */
+  /**
+   * Shuts down the {@link #executorService}.
+   *
+   * @return this
+   */
   public AnsiLoggerWithFooter shutDown() {
     executorService.shutdown();
     return this;

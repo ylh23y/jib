@@ -32,7 +32,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.apache.maven.model.Plugin;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -50,7 +49,7 @@ public class MavenProjectProperties implements ProjectProperties {
   public static final String PLUGIN_KEY = "com.google.cloud.tools:" + PLUGIN_NAME;
 
   /** Used to generate the User-Agent header and history metadata. */
-  static final String TOOL_NAME = "jib-maven-plugin";
+  private static final String TOOL_NAME = "jib-maven-plugin";
 
   /** Used for logging during main class inference. */
   private static final String JAR_PLUGIN_NAME = "'maven-jar-plugin'";
@@ -74,7 +73,7 @@ public class MavenProjectProperties implements ProjectProperties {
     try {
       return new MavenProjectProperties(
           project,
-          makeEventHandlers(log),
+          log,
           MavenLayerConfigurations.getForProject(project, extraDirectory, permissions, appRoot));
 
     } catch (IOException ex) {
@@ -86,48 +85,11 @@ public class MavenProjectProperties implements ProjectProperties {
     }
   }
 
-  private static EventHandlers makeEventHandlers(Log log) {
-    // LogEventHandler logEventHandler = new LogEventHandler(log);
-
-    AnsiLoggerWithFooter ansiLoggerWithFooter = new AnsiLoggerWithFooter(log::info);
-    Consumer<LogEvent> logEventHandler =
-        logEvent -> {
-          switch (logEvent.getLevel()) {
-            case LIFECYCLE:
-              if (log.isInfoEnabled()) {
-                ansiLoggerWithFooter.log(log::info, logEvent.getMessage());
-              }
-              break;
-
-            case DEBUG:
-              if (log.isDebugEnabled()) {
-                ansiLoggerWithFooter.log(log::debug, logEvent.getMessage());
-              }
-              break;
-
-            case ERROR:
-              if (log.isErrorEnabled()) {
-                ansiLoggerWithFooter.log(log::error, logEvent.getMessage());
-              }
-              break;
-
-            case INFO:
-              // Use lifecycle for progress-indicating messages.
-              if (log.isDebugEnabled()) {
-                ansiLoggerWithFooter.log(log::debug, logEvent.getMessage());
-              }
-              break;
-
-            case WARN:
-              if (log.isWarnEnabled()) {
-                ansiLoggerWithFooter.log(log::warn, logEvent.getMessage());
-              }
-              break;
-
-            default:
-              throw new IllegalStateException("Unknown LogEvent.Level: " + logEvent.getLevel());
-          }
-        };
+  private static EventHandlers makeEventHandlers(
+      Log log, AnsiLoggerWithFooter ansiLoggerWithFooter) {
+    LogEventHandler logEventHandler = new LogEventHandler(log, ansiLoggerWithFooter);
+    TimerEventHandler timerEventHandler =
+        new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message)));
 
     ProgressEventHandler progressEventHandler =
         new ProgressEventHandler(
@@ -138,32 +100,33 @@ public class MavenProjectProperties implements ProjectProperties {
 
     return new EventHandlers()
         .add(JibEventType.LOGGING, logEventHandler)
-        .add(
-            JibEventType.TIMING,
-            new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
-        .add(JibEventType.PROGRESS, progressEventHandler)
-        .add(
-            JibEventType.SUCCESS,
-            successEvent -> ansiLoggerWithFooter.shutDown().awaitTermination());
+        .add(JibEventType.TIMING, timerEventHandler)
+        .add(JibEventType.PROGRESS, progressEventHandler);
   }
 
   private final MavenProject project;
+  private final AnsiLoggerWithFooter ansiLoggerWithFooter;
   private final EventHandlers eventHandlers;
   private final JavaLayerConfigurations javaLayerConfigurations;
 
   @VisibleForTesting
   MavenProjectProperties(
-      MavenProject project,
-      EventHandlers eventHandlers,
-      JavaLayerConfigurations javaLayerConfigurations) {
+      MavenProject project, Log log, JavaLayerConfigurations javaLayerConfigurations) {
     this.project = project;
-    this.eventHandlers = eventHandlers;
     this.javaLayerConfigurations = javaLayerConfigurations;
+
+    ansiLoggerWithFooter = new AnsiLoggerWithFooter(log::info);
+    eventHandlers = makeEventHandlers(log, ansiLoggerWithFooter);
   }
 
   @Override
   public JavaLayerConfigurations getJavaLayerConfigurations() {
     return javaLayerConfigurations;
+  }
+
+  @Override
+  public void waitForLoggingThread() {
+    ansiLoggerWithFooter.shutDown().awaitTermination();
   }
 
   @Override

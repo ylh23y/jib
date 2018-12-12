@@ -38,7 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
@@ -53,7 +52,7 @@ import org.gradle.jvm.tasks.Jar;
 class GradleProjectProperties implements ProjectProperties {
 
   /** Used to generate the User-Agent header and history metadata. */
-  static final String TOOL_NAME = "jib-gradle-plugin";
+  private static final String TOOL_NAME = "jib-gradle-plugin";
 
   /** Used for logging during main class inference. */
   private static final String PLUGIN_NAME = "jib";
@@ -71,7 +70,7 @@ class GradleProjectProperties implements ProjectProperties {
     try {
       return new GradleProjectProperties(
           project,
-          makeEventHandlers(logger),
+          logger,
           GradleLayerConfigurations.getForProject(
               project, logger, extraDirectory, convertPermissionsMap(permissions), appRoot));
 
@@ -80,47 +79,11 @@ class GradleProjectProperties implements ProjectProperties {
     }
   }
 
-  private static EventHandlers makeEventHandlers(Logger logger) {
-    // LogEventHandler logEventHandler = new LogEventHandler(logger);
-
-    AnsiLoggerWithFooter ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle);
-    Consumer<LogEvent> logEventHandler =
-        logEvent -> {
-          switch (logEvent.getLevel()) {
-            case LIFECYCLE:
-              if (logger.isLifecycleEnabled()) {
-                ansiLoggerWithFooter.log(logger::lifecycle, logEvent.getMessage());
-              }
-              break;
-
-            case DEBUG:
-              if (logger.isDebugEnabled()) {
-                ansiLoggerWithFooter.log(logger::debug, logEvent.getMessage());
-              }
-              break;
-
-            case ERROR:
-              if (logger.isErrorEnabled()) {
-                ansiLoggerWithFooter.log(logger::error, logEvent.getMessage());
-              }
-              break;
-
-            case INFO:
-              if (logger.isInfoEnabled()) {
-                ansiLoggerWithFooter.log(logger::info, logEvent.getMessage());
-              }
-              break;
-
-            case WARN:
-              if (logger.isWarnEnabled()) {
-                ansiLoggerWithFooter.log(logger::warn, "warning: " + logEvent.getMessage());
-              }
-              break;
-
-            default:
-              throw new IllegalStateException("Unknown LogEvent.Level: " + logEvent.getLevel());
-          }
-        };
+  private static EventHandlers makeEventHandlers(
+      Logger logger, AnsiLoggerWithFooter ansiLoggerWithFooter) {
+    LogEventHandler logEventHandler = new LogEventHandler(logger, ansiLoggerWithFooter);
+    TimerEventHandler timerEventHandler =
+        new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message)));
 
     ProgressEventHandler progressEventHandler =
         new ProgressEventHandler(
@@ -134,11 +97,8 @@ class GradleProjectProperties implements ProjectProperties {
 
     return new EventHandlers()
         .add(JibEventType.LOGGING, logEventHandler)
-        .add(
-            JibEventType.TIMING,
-            new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message))))
-        .add(JibEventType.PROGRESS, progressEventHandler)
-        .add(JibEventType.SUCCESS, successEvent -> ansiLoggerWithFooter.shutDown());
+        .add(JibEventType.TIMING, timerEventHandler)
+        .add(JibEventType.PROGRESS, progressEventHandler);
   }
 
   @Nullable
@@ -156,22 +116,28 @@ class GradleProjectProperties implements ProjectProperties {
   }
 
   private final Project project;
+  private final AnsiLoggerWithFooter ansiLoggerWithFooter;
   private final EventHandlers eventHandlers;
   private final JavaLayerConfigurations javaLayerConfigurations;
 
   @VisibleForTesting
   GradleProjectProperties(
-      Project project,
-      EventHandlers eventHandlers,
-      JavaLayerConfigurations javaLayerConfigurations) {
+      Project project, Logger logger, JavaLayerConfigurations javaLayerConfigurations) {
     this.project = project;
-    this.eventHandlers = eventHandlers;
     this.javaLayerConfigurations = javaLayerConfigurations;
+
+    ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle);
+    eventHandlers = makeEventHandlers(logger, ansiLoggerWithFooter);
   }
 
   @Override
   public JavaLayerConfigurations getJavaLayerConfigurations() {
     return javaLayerConfigurations;
+  }
+
+  @Override
+  public void waitForLoggingThread() {
+    ansiLoggerWithFooter.shutDown().awaitTermination();
   }
 
   @Override

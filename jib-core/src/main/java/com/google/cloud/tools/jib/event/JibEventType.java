@@ -18,7 +18,6 @@ package com.google.cloud.tools.jib.event;
 
 import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.event.events.ProgressEvent;
-import com.google.cloud.tools.jib.event.events.SuccessEvent;
 import com.google.cloud.tools.jib.event.events.TimerEvent;
 import com.google.common.annotations.VisibleForTesting;
 
@@ -40,9 +39,6 @@ public class JibEventType<E extends JibEvent> {
   /** Event indicating progress for tasks in Jib's execution. */
   public static final JibEventType<ProgressEvent> PROGRESS =
       new JibEventType<>(ProgressEvent.class);
-
-  /** Event indicating successful build completion. */
-  public static final JibEventType<SuccessEvent> SUCCESS = new JibEventType<>(SuccessEvent.class);
 
   // TODO: Add entries for all JibEvent types.
 
