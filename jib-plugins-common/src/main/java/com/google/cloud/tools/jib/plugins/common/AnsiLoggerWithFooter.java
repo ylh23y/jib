@@ -16,13 +16,12 @@
 
 package com.google.cloud.tools.jib.plugins.common;
 
-import com.google.common.util.concurrent.Futures;
+import com.google.common.annotations.VisibleForTesting;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -49,8 +48,7 @@ public class AnsiLoggerWithFooter {
 
   private static final Duration EXECUTOR_SHUTDOWN_WAIT = Duration.ofSeconds(1);
 
-  private final ExecutorService executorService = Executors.newSingleThreadExecutor();
-
+  private final ExecutorService executorService;
   private final Consumer<String> plainPrinter;
 
   private List<String> footerLines = Collections.emptyList();
@@ -62,7 +60,13 @@ public class AnsiLoggerWithFooter {
    *     plain console output. {@code plainPrinter} should print a new line at the end.
    */
   public AnsiLoggerWithFooter(Consumer<String> plainPrinter) {
+    this(plainPrinter, Executors.newSingleThreadExecutor());
+  }
+
+  @VisibleForTesting
+  AnsiLoggerWithFooter(Consumer<String> plainPrinter, ExecutorService executorService) {
     this.plainPrinter = plainPrinter;
+    this.executorService = executorService;
   }
 
   /**
