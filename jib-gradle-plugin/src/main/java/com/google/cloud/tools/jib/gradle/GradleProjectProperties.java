@@ -26,6 +26,7 @@ import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
 import com.google.cloud.tools.jib.plugins.common.AnsiLoggerWithFooter;
 import com.google.cloud.tools.jib.plugins.common.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
+import com.google.cloud.tools.jib.plugins.common.PropertyNames;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.File;
@@ -44,6 +45,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.configuration.ConsoleOutput;
 import org.gradle.api.plugins.WarPluginConvention;
 import org.gradle.api.tasks.bundling.War;
 import org.gradle.jvm.tasks.Jar;
@@ -126,7 +128,14 @@ class GradleProjectProperties implements ProjectProperties {
     this.project = project;
     this.javaLayerConfigurations = javaLayerConfigurations;
 
-    ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle);
+    // TODO: Make SHOW_PROGRESS be true by default.
+    boolean showProgressFooter =
+        Boolean.getBoolean(PropertyNames.SHOW_PROGRESS)
+            // TODO: When getConsoleOutput() is Auto, need to not show footer if console does not
+            // support ANSI
+            && ConsoleOutput.Plain != project.getGradle().getStartParameter().getConsoleOutput();
+
+    ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle, showProgressFooter);
     eventHandlers = makeEventHandlers(logger, ansiLoggerWithFooter);
   }
 
