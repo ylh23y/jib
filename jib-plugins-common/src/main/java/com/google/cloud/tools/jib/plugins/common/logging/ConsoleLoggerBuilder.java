@@ -16,7 +16,6 @@
 
 package com.google.cloud.tools.jib.plugins.common.logging;
 
-import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.event.events.LogEvent.Level;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
