@@ -23,21 +23,25 @@ import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.event.progress.ProgressEventHandler;
 import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
-import com.google.cloud.tools.jib.plugins.common.AnsiLoggerWithFooter;
-import com.google.cloud.tools.jib.plugins.common.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
 import com.google.cloud.tools.jib.plugins.common.PropertyNames;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
+import com.google.cloud.tools.jib.plugins.common.logging.ConsoleLogger;
+import com.google.cloud.tools.jib.plugins.common.logging.ConsoleLoggerBuilder;
+import com.google.cloud.tools.jib.plugins.common.logging.ProgressDisplayGenerator;
+import com.google.cloud.tools.jib.plugins.common.logging.SingleThreadedExecutor;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.apache.maven.model.Plugin;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.shared.utils.Os;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 
 /** Obtains information about a {@link MavenProject}. */
@@ -87,26 +91,48 @@ public class MavenProjectProperties implements ProjectProperties {
   }
 
   private static EventHandlers makeEventHandlers(
-      Log log, AnsiLoggerWithFooter ansiLoggerWithFooter) {
-    LogEventHandler logEventHandler = new LogEventHandler(log, ansiLoggerWithFooter);
-    TimerEventHandler timerEventHandler =
-        new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message)));
+      Log log, SingleThreadedExecutor singleThreadedExecutor) {
+    Consumer<String> noOp = ignored -> {};
 
-    ProgressEventHandler progressEventHandler =
-        new ProgressEventHandler(
-            update ->
-                ansiLoggerWithFooter.setFooter(
-                    ProgressDisplayGenerator.generateProgressDisplay(
-                        update.getProgress(), update.getUnfinishedAllocations())));
+    ConsoleLogger consoleLogger =
+        (isProgressFooterEnabled()
+                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor).progress(noOp)
+                : ConsoleLoggerBuilder.plain(singleThreadedExecutor)
+                    .progress(log.isInfoEnabled() ? log::info : noOp))
+            .lifecycle(log.isInfoEnabled() ? log::info : noOp)
+            .debug(log.isDebugEnabled() ? log::debug : noOp)
+            // INFO messages also go to Log#debug.
+            .info(log.isDebugEnabled() ? log::debug : noOp)
+            .warn(log.isWarnEnabled() ? log::warn : noOp)
+            .error(log.isErrorEnabled() ? log::error : noOp)
+            .build();
 
     return new EventHandlers()
-        .add(JibEventType.LOGGING, logEventHandler)
-        .add(JibEventType.TIMING, timerEventHandler)
-        .add(JibEventType.PROGRESS, progressEventHandler);
+        .add(JibEventType.LOGGING, logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
+        .add(JibEventType.TIMING, new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
+        .add(JibEventType.PROGRESS, new ProgressEventHandler(
+            update ->
+                consoleLogger.setFooter(
+                    ProgressDisplayGenerator.generateProgressDisplay(
+                        update.getProgress(), update.getUnfinishedAllocations()))));
+  }
+
+  private static boolean isProgressFooterEnabled() {
+    // TODO: Make SHOW_PROGRESS be true by default.
+    if (!Boolean.getBoolean(PropertyNames.SHOW_PROGRESS)) {
+      return false;
+    }
+
+    // Enables progress footer when ANSI is supported (Windows or System.console() not null and TERM
+    // not 'dumb').
+    if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+      return true;
+    }
+    return System.console() != null && !"dumb".equals(System.getenv("TERM"));
   }
 
   private final MavenProject project;
-  private final AnsiLoggerWithFooter ansiLoggerWithFooter;
+  private final SingleThreadedExecutor singleThreadedExecutor = new SingleThreadedExecutor();
   private final EventHandlers eventHandlers;
   private final JavaLayerConfigurations javaLayerConfigurations;
 
@@ -116,12 +142,7 @@ public class MavenProjectProperties implements ProjectProperties {
     this.project = project;
     this.javaLayerConfigurations = javaLayerConfigurations;
 
-    // TODO: Make SHOW_PROGRESS be true by default.
-    boolean showProgressFooter =
-        Boolean.getBoolean(PropertyNames.SHOW_PROGRESS) && System.console() != null;
-
-    ansiLoggerWithFooter = new AnsiLoggerWithFooter(log::info, showProgressFooter);
-    eventHandlers = makeEventHandlers(log, ansiLoggerWithFooter);
+    eventHandlers = makeEventHandlers(log, singleThreadedExecutor);
   }
 
   @Override
@@ -131,7 +152,7 @@ public class MavenProjectProperties implements ProjectProperties {
 
   @Override
   public void waitForLoggingThread() {
-    ansiLoggerWithFooter.shutDownAndAwaitTermination();
+    singleThreadedExecutor.shutDownAndAwaitTermination();
   }
 
   @Override

@@ -23,11 +23,13 @@ import com.google.cloud.tools.jib.event.events.LogEvent;
 import com.google.cloud.tools.jib.event.progress.ProgressEventHandler;
 import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.frontend.JavaLayerConfigurations;
-import com.google.cloud.tools.jib.plugins.common.AnsiLoggerWithFooter;
-import com.google.cloud.tools.jib.plugins.common.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
 import com.google.cloud.tools.jib.plugins.common.PropertyNames;
 import com.google.cloud.tools.jib.plugins.common.TimerEventHandler;
+import com.google.cloud.tools.jib.plugins.common.logging.ConsoleLogger;
+import com.google.cloud.tools.jib.plugins.common.logging.ConsoleLoggerBuilder;
+import com.google.cloud.tools.jib.plugins.common.logging.ProgressDisplayGenerator;
+import com.google.cloud.tools.jib.plugins.common.logging.SingleThreadedExecutor;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.File;
 import java.io.IOException;
@@ -39,13 +41,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.function.Consumer;
 import javax.annotation.Nullable;
+import org.apache.tools.ant.taskdefs.condition.Os;
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
-import org.gradle.api.logging.configuration.ConsoleOutput;
 import org.gradle.api.plugins.WarPluginConvention;
 import org.gradle.api.tasks.bundling.War;
 import org.gradle.jvm.tasks.Jar;
@@ -81,28 +84,6 @@ class GradleProjectProperties implements ProjectProperties {
     }
   }
 
-  private static EventHandlers makeEventHandlers(
-      Logger logger, AnsiLoggerWithFooter ansiLoggerWithFooter) {
-    LogEventHandler logEventHandler = new LogEventHandler(logger, ansiLoggerWithFooter);
-    TimerEventHandler timerEventHandler =
-        new TimerEventHandler(message -> logEventHandler.accept(LogEvent.debug(message)));
-
-    ProgressEventHandler progressEventHandler =
-        new ProgressEventHandler(
-            update -> {
-              List<String> footer =
-                  ProgressDisplayGenerator.generateProgressDisplay(
-                      update.getProgress(), update.getUnfinishedAllocations());
-              footer.add("");
-              ansiLoggerWithFooter.setFooter(footer);
-            });
-
-    return new EventHandlers()
-        .add(JibEventType.LOGGING, logEventHandler)
-        .add(JibEventType.TIMING, timerEventHandler)
-        .add(JibEventType.PROGRESS, progressEventHandler);
-  }
-
   @Nullable
   static War getWarTask(Project project) {
     WarPluginConvention warPluginConvention =
@@ -117,8 +98,55 @@ class GradleProjectProperties implements ProjectProperties {
     return project.getBuildDir().toPath().resolve(ProjectProperties.EXPLODED_WAR_DIRECTORY_NAME);
   }
 
+  private static EventHandlers makeEventHandlers(
+      Project project, Logger logger, SingleThreadedExecutor singleThreadedExecutor) {
+    Consumer<String> noOp = ignored -> {};
+
+    ConsoleLogger consoleLogger =
+        (isProgressFooterEnabled(project)
+                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor).progress(noOp)
+                : ConsoleLoggerBuilder.plain(singleThreadedExecutor).progress(logger::lifecycle))
+            .lifecycle(logger.isLifecycleEnabled() ? logger::lifecycle : noOp)
+            .debug(logger.isDebugEnabled() ? logger::debug : noOp)
+            .info(logger.isInfoEnabled() ? logger::info : noOp)
+            .warn(logger.isWarnEnabled() ? logger::warn : noOp)
+            .error(logger.isErrorEnabled() ? logger::error : noOp)
+            .build();
+
+    return new EventHandlers()
+        .add(JibEventType.LOGGING, logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
+        .add(JibEventType.TIMING, new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
+        .add(JibEventType.PROGRESS, new ProgressEventHandler(
+            update -> {
+              List<String> footer =
+                  ProgressDisplayGenerator.generateProgressDisplay(
+                      update.getProgress(), update.getUnfinishedAllocations());
+              footer.add("");
+              consoleLogger.setFooter(footer);
+            }));
+  }
+
+  private static boolean isProgressFooterEnabled(Project project) {
+    // TODO: Make SHOW_PROGRESS be true by default.
+    if (!Boolean.getBoolean(PropertyNames.SHOW_PROGRESS)) {
+      return false;
+    }
+
+    switch (project.getGradle().getStartParameter().getConsoleOutput()) {
+      case Plain:
+        return false;
+
+      case Auto:
+        // Enables progress footer when ANSI is supported (Windows or TERM not 'dumb').
+        return Os.isFamily(Os.FAMILY_WINDOWS) || !"dumb".equals(System.getenv("TERM"));
+
+      default:
+        return true;
+    }
+  }
+
   private final Project project;
-  private final AnsiLoggerWithFooter ansiLoggerWithFooter;
+  private final SingleThreadedExecutor singleThreadedExecutor = new SingleThreadedExecutor();
   private final EventHandlers eventHandlers;
   private final JavaLayerConfigurations javaLayerConfigurations;
 
@@ -128,15 +156,7 @@ class GradleProjectProperties implements ProjectProperties {
     this.project = project;
     this.javaLayerConfigurations = javaLayerConfigurations;
 
-    // TODO: Make SHOW_PROGRESS be true by default.
-    boolean showProgressFooter =
-        Boolean.getBoolean(PropertyNames.SHOW_PROGRESS)
-            // TODO: When getConsoleOutput() is Auto, need to not show footer if console does not
-            // support ANSI
-            && ConsoleOutput.Plain != project.getGradle().getStartParameter().getConsoleOutput();
-
-    ansiLoggerWithFooter = new AnsiLoggerWithFooter(logger::lifecycle, showProgressFooter);
-    eventHandlers = makeEventHandlers(logger, ansiLoggerWithFooter);
+    eventHandlers = makeEventHandlers(project, logger, singleThreadedExecutor);
   }
 
   @Override
@@ -146,7 +166,7 @@ class GradleProjectProperties implements ProjectProperties {
 
   @Override
   public void waitForLoggingThread() {
-    ansiLoggerWithFooter.shutDownAndAwaitTermination();
+    singleThreadedExecutor.shutDownAndAwaitTermination();
   }
 
   @Override
