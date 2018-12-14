@@ -41,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.apache.tools.ant.taskdefs.condition.Os;
 import org.gradle.api.GradleException;
@@ -100,30 +99,42 @@ class GradleProjectProperties implements ProjectProperties {
 
   private static EventHandlers makeEventHandlers(
       Project project, Logger logger, SingleThreadedExecutor singleThreadedExecutor) {
-    Consumer<String> noOp = ignored -> {};
-
-    ConsoleLogger consoleLogger =
+    ConsoleLoggerBuilder consoleLoggerBuilder =
         (isProgressFooterEnabled(project)
-                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor).progress(noOp)
+                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor)
                 : ConsoleLoggerBuilder.plain(singleThreadedExecutor).progress(logger::lifecycle))
-            .lifecycle(logger.isLifecycleEnabled() ? logger::lifecycle : noOp)
-            .debug(logger.isDebugEnabled() ? logger::debug : noOp)
-            .info(logger.isInfoEnabled() ? logger::info : noOp)
-            .warn(logger.isWarnEnabled() ? logger::warn : noOp)
-            .error(logger.isErrorEnabled() ? logger::error : noOp)
-            .build();
+            .lifecycle(logger::lifecycle);
+    if (logger.isDebugEnabled()) {
+      consoleLoggerBuilder.debug(logger::debug);
+    }
+    if (logger.isInfoEnabled()) {
+      consoleLoggerBuilder.info(logger::info);
+    }
+    if (logger.isWarnEnabled()) {
+      consoleLoggerBuilder.warn(logger::warn);
+    }
+    if (logger.isErrorEnabled()) {
+      consoleLoggerBuilder.error(logger::error);
+    }
+    ConsoleLogger consoleLogger = consoleLoggerBuilder.build();
 
     return new EventHandlers()
-        .add(JibEventType.LOGGING, logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
-        .add(JibEventType.TIMING, new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
-        .add(JibEventType.PROGRESS, new ProgressEventHandler(
-            update -> {
-              List<String> footer =
-                  ProgressDisplayGenerator.generateProgressDisplay(
-                      update.getProgress(), update.getUnfinishedAllocations());
-              footer.add("");
-              consoleLogger.setFooter(footer);
-            }));
+        .add(
+            JibEventType.LOGGING,
+            logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
+        .add(
+            JibEventType.TIMING,
+            new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
+        .add(
+            JibEventType.PROGRESS,
+            new ProgressEventHandler(
+                update -> {
+                  List<String> footer =
+                      ProgressDisplayGenerator.generateProgressDisplay(
+                          update.getProgress(), update.getUnfinishedAllocations());
+                  footer.add("");
+                  consoleLogger.setFooter(footer);
+                }));
   }
 
   private static boolean isProgressFooterEnabled(Project project) {

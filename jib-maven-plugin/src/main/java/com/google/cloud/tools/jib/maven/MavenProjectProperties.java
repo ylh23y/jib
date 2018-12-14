@@ -35,7 +35,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.function.Consumer;
 import javax.annotation.Nullable;
 import org.apache.maven.model.Plugin;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -92,29 +91,39 @@ public class MavenProjectProperties implements ProjectProperties {
 
   private static EventHandlers makeEventHandlers(
       Log log, SingleThreadedExecutor singleThreadedExecutor) {
-    Consumer<String> noOp = ignored -> {};
-
-    ConsoleLogger consoleLogger =
+    ConsoleLoggerBuilder consoleLoggerBuilder =
         (isProgressFooterEnabled()
-                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor).progress(noOp)
-                : ConsoleLoggerBuilder.plain(singleThreadedExecutor)
-                    .progress(log.isInfoEnabled() ? log::info : noOp))
-            .lifecycle(log.isInfoEnabled() ? log::info : noOp)
-            .debug(log.isDebugEnabled() ? log::debug : noOp)
-            // INFO messages also go to Log#debug.
-            .info(log.isDebugEnabled() ? log::debug : noOp)
-            .warn(log.isWarnEnabled() ? log::warn : noOp)
-            .error(log.isErrorEnabled() ? log::error : noOp)
-            .build();
+                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor)
+                : ConsoleLoggerBuilder.plain(singleThreadedExecutor).progress(log::info))
+            .lifecycle(log::info);
+    if (log.isDebugEnabled()) {
+      consoleLoggerBuilder
+          .debug(log::debug)
+          // INFO messages also go to Log#debug since Log#info is used for LIFECYCLE.
+          .info(log::debug);
+    }
+    if (log.isWarnEnabled()) {
+      consoleLoggerBuilder.warn(log::warn);
+    }
+    if (log.isErrorEnabled()) {
+      consoleLoggerBuilder.error(log::error);
+    }
+    ConsoleLogger consoleLogger = consoleLoggerBuilder.build();
 
     return new EventHandlers()
-        .add(JibEventType.LOGGING, logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
-        .add(JibEventType.TIMING, new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
-        .add(JibEventType.PROGRESS, new ProgressEventHandler(
-            update ->
-                consoleLogger.setFooter(
-                    ProgressDisplayGenerator.generateProgressDisplay(
-                        update.getProgress(), update.getUnfinishedAllocations()))));
+        .add(
+            JibEventType.LOGGING,
+            logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
+        .add(
+            JibEventType.TIMING,
+            new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
+        .add(
+            JibEventType.PROGRESS,
+            new ProgressEventHandler(
+                update ->
+                    consoleLogger.setFooter(
+                        ProgressDisplayGenerator.generateProgressDisplay(
+                            update.getProgress(), update.getUnfinishedAllocations()))));
   }
 
   private static boolean isProgressFooterEnabled() {
