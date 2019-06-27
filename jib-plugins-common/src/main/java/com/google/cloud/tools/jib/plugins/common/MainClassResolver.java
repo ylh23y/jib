@@ -16,9 +16,8 @@
 
 package com.google.cloud.tools.jib.plugins.common;
 
-import com.google.cloud.tools.jib.event.DefaultEventDispatcher;
-import com.google.cloud.tools.jib.event.events.LogEvent;
-import com.google.cloud.tools.jib.frontend.MainClassFinder;
+import com.google.cloud.tools.jib.api.LogEvent;
+import com.google.cloud.tools.jib.api.MainClassFinder;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -72,8 +71,7 @@ public class MainClassResolver {
 
     Preconditions.checkNotNull(mainClass);
     if (!isValidJavaClass(mainClass)) {
-      new DefaultEventDispatcher(projectProperties.getEventHandlers())
-          .dispatch(LogEvent.warn("'mainClass' is not a valid Java class : " + mainClass));
+      projectProperties.log(LogEvent.warn("'mainClass' is not a valid Java class : " + mainClass));
     }
 
     return mainClass;
@@ -95,29 +93,24 @@ public class MainClassResolver {
 
   @Nullable
   private static String getMainClassFromJar(ProjectProperties projectProperties) {
-    new DefaultEventDispatcher(projectProperties.getEventHandlers())
-        .dispatch(
-            LogEvent.info(
-                "Searching for main class... Add a 'mainClass' configuration to '"
-                    + projectProperties.getPluginName()
-                    + "' to improve build speed."));
+    projectProperties.log(
+        LogEvent.info(
+            "Searching for main class... Add a 'mainClass' configuration to '"
+                + projectProperties.getPluginName()
+                + "' to improve build speed."));
     return projectProperties.getMainClassFromJar();
   }
 
   private static String findMainClassInClassFiles(ProjectProperties projectProperties)
       throws MainClassInferenceException, IOException {
-    new DefaultEventDispatcher(projectProperties.getEventHandlers())
-        .dispatch(
-            LogEvent.debug(
-                "Could not find a valid main class specified in "
-                    + projectProperties.getJarPluginName()
-                    + "; attempting to infer main class."));
+    projectProperties.log(
+        LogEvent.debug(
+            "Could not find a valid main class specified in "
+                + projectProperties.getJarPluginName()
+                + "; attempting to infer main class."));
 
     MainClassFinder.Result mainClassFinderResult =
-        new MainClassFinder(
-                projectProperties.getClassFiles(),
-                new DefaultEventDispatcher(projectProperties.getEventHandlers()))
-            .find();
+        MainClassFinder.find(projectProperties.getClassFiles(), projectProperties::log);
 
     switch (mainClassFinderResult.getType()) {
       case MAIN_CLASS_FOUND:

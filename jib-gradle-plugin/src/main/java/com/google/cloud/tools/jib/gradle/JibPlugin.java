@@ -41,6 +41,7 @@ public class JibPlugin implements Plugin<Project> {
   @VisibleForTesting static final String BUILD_DOCKER_TASK_NAME = "jibDockerBuild";
   @VisibleForTesting static final String FILES_TASK_NAME = "_jibSkaffoldFiles";
   @VisibleForTesting static final String FILES_TASK_V2_NAME = "_jibSkaffoldFilesV2";
+  @VisibleForTesting static final String INIT_TASK_NAME = "_jibSkaffoldInit";
   @VisibleForTesting static final String EXPLODED_WAR_TASK_NAME = "jibExplodedWar";
 
   /**
@@ -120,6 +121,7 @@ public class JibPlugin implements Plugin<Project> {
             .setJibExtension(jibExtension);
     project.getTasks().create(FILES_TASK_NAME, FilesTask.class).setJibExtension(jibExtension);
     project.getTasks().create(FILES_TASK_V2_NAME, FilesTaskV2.class).setJibExtension(jibExtension);
+    project.getTasks().create(INIT_TASK_NAME, SkaffoldInitTask.class).setJibExtension(jibExtension);
 
     project.afterEvaluate(
         projectAfterEvaluation -> {
@@ -128,16 +130,16 @@ public class JibPlugin implements Plugin<Project> {
             Task dependsOnTask;
             if (warTask != null) {
               ExplodedWarTask explodedWarTask =
-                  (ExplodedWarTask)
-                      project
-                          .getTasks()
-                          .create(EXPLODED_WAR_TASK_NAME, ExplodedWarTask.class)
-                          .dependsOn(warTask);
+                  project.getTasks().create(EXPLODED_WAR_TASK_NAME, ExplodedWarTask.class);
+              explodedWarTask.dependsOn(warTask);
               explodedWarTask.setWarFile(warTask.getArchivePath().toPath());
               explodedWarTask.setExplodedWarDirectory(
                   GradleProjectProperties.getExplodedWarDirectory(projectAfterEvaluation));
               // Have all tasks depend on the 'jibExplodedWar' task.
               dependsOnTask = explodedWarTask;
+            } else if ("packaged".equals(jibExtension.getContainerizingMode())) {
+              // Have all tasks depend on the 'jar' task.
+              dependsOnTask = projectAfterEvaluation.getTasks().getByPath("jar");
             } else {
               // Have all tasks depend on the 'classes' task.
               dependsOnTask = projectAfterEvaluation.getTasks().getByPath("classes");

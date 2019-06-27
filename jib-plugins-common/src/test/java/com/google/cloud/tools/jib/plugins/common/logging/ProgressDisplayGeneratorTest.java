@@ -16,13 +16,12 @@
 
 package com.google.cloud.tools.jib.plugins.common.logging;
 
-import com.google.cloud.tools.jib.event.progress.Allocation;
 import java.util.Arrays;
 import java.util.Collections;
 import org.junit.Assert;
 import org.junit.Test;
 
-/** Tests for {@link com.google.cloud.tools.jib.plugins.common.logging.ProgressDisplayGenerator}. */
+/** Tests for {@link ProgressDisplayGenerator}. */
 public class ProgressDisplayGeneratorTest {
 
   private static String getBar(String bar, double value) {
@@ -52,18 +51,14 @@ public class ProgressDisplayGeneratorTest {
 
   @Test
   public void testGenerateProgressDisplay_unfinishedTasks() {
-    Allocation root = Allocation.newRoot("does not display", 2);
-    Allocation childLeft = root.newChild("does not display", 2);
-    Allocation childLeftDown = childLeft.newChild("childLeftDown", 2);
-    Allocation childRight = root.newChild("childRight", 2);
-
     Assert.assertEquals(
         Arrays.asList(
             "Executing tasks:",
             getBar("[===============               ]", 50.0),
-            "> childLeftDown",
-            "> childRight"),
+            "> unfinished task",
+            "> another task in progress",
+            "> stalled"),
         ProgressDisplayGenerator.generateProgressDisplay(
-            0.5, Arrays.asList(root, childLeft, childLeftDown, childRight)));
+            0.5, Arrays.asList("unfinished task", "another task in progress", "stalled")));
   }
 }

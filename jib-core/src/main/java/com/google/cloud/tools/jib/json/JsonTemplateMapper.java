@@ -16,14 +16,17 @@
 
 package com.google.cloud.tools.jib.json;
 
+import com.fasterxml.jackson.core.JsonGenerationException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.CollectionType;
-import com.google.cloud.tools.jib.blob.Blob;
-import com.google.cloud.tools.jib.blob.Blobs;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -102,6 +105,20 @@ public class JsonTemplateMapper {
   }
 
   /**
+   * Deserializes a JSON object from a JSON byte array.
+   *
+   * @param <T> child type of {@link JsonTemplate}
+   * @param jsonBytes a JSON byte array
+   * @param templateClass the template to deserialize the string to
+   * @return the template filled with the values parsed from {@code jsonBytes}
+   * @throws IOException if an error occurred during parsing the JSON
+   */
+  public static <T extends JsonTemplate> T readJson(byte[] jsonBytes, Class<T> templateClass)
+      throws IOException {
+    return objectMapper.readValue(jsonBytes, templateClass);
+  }
+
+  /**
    * Deserializes a JSON object list from a JSON string.
    *
    * @param <T> child type of {@link JsonTemplate}
@@ -117,28 +134,51 @@ public class JsonTemplateMapper {
     return objectMapper.readValue(jsonString, listType);
   }
 
-  /**
-   * Convert a {@link JsonTemplate} to a {@link Blob} of the JSON string.
-   *
-   * @param template the JSON template to convert
-   * @return a {@link Blob} of the JSON string
-   */
-  public static Blob toBlob(JsonTemplate template) {
-    return toBlob((Object) template);
+  public static String toUtf8String(JsonTemplate template)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    return toUtf8String((Object) template);
   }
 
-  /**
-   * Convert a list of {@link JsonTemplate} to a {@link Blob} of the JSON string.
-   *
-   * @param templates the list of JSON templates to convert
-   * @return a {@link Blob} of the JSON string
-   */
-  public static Blob toBlob(List<? extends JsonTemplate> templates) {
-    return toBlob((Object) templates);
+  public static String toUtf8String(List<? extends JsonTemplate> templates)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    return toUtf8String((Object) templates);
   }
 
-  private static Blob toBlob(Object template) {
-    return Blobs.from(outputStream -> objectMapper.writeValue(outputStream, template));
+  public static byte[] toByteArray(JsonTemplate template)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    return toByteArray((Object) template);
+  }
+
+  public static byte[] toByteArray(List<? extends JsonTemplate> templates)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    return toByteArray((Object) templates);
+  }
+
+  public static void writeTo(JsonTemplate template, OutputStream out)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    writeTo((Object) template, out);
+  }
+
+  public static void writeTo(List<? extends JsonTemplate> templates, OutputStream out)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    writeTo((Object) templates, out);
+  }
+
+  private static String toUtf8String(Object template)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    return new String(toByteArray(template), StandardCharsets.UTF_8);
+  }
+
+  private static byte[] toByteArray(Object template)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    writeTo(template, out);
+    return out.toByteArray();
+  }
+
+  private static void writeTo(Object template, OutputStream out)
+      throws JsonGenerationException, JsonMappingException, IOException {
+    objectMapper.writeValue(out, template);
   }
 
   private JsonTemplateMapper() {}

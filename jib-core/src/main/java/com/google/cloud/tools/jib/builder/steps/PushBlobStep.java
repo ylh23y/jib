@@ -16,116 +16,79 @@
 
 package com.google.cloud.tools.jib.builder.steps;
 
-import com.google.cloud.tools.jib.async.AsyncDependencies;
-import com.google.cloud.tools.jib.async.AsyncStep;
-import com.google.cloud.tools.jib.async.NonBlockingSteps;
+import com.google.cloud.tools.jib.api.LogEvent;
+import com.google.cloud.tools.jib.api.RegistryException;
 import com.google.cloud.tools.jib.blob.Blob;
 import com.google.cloud.tools.jib.blob.BlobDescriptor;
-import com.google.cloud.tools.jib.builder.BuildStepType;
 import com.google.cloud.tools.jib.builder.ProgressEventDispatcher;
 import com.google.cloud.tools.jib.builder.TimerEventDispatcher;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
-import com.google.cloud.tools.jib.event.events.LogEvent;
-import com.google.cloud.tools.jib.http.BlobProgressListener;
+import com.google.cloud.tools.jib.event.progress.ThrottledAccumulatingConsumer;
+import com.google.cloud.tools.jib.http.Authorization;
 import com.google.cloud.tools.jib.registry.RegistryClient;
-import com.google.cloud.tools.jib.registry.RegistryException;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
-import java.time.Duration;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
+import javax.annotation.Nullable;
 
 /** Pushes a BLOB to the target registry. */
-class PushBlobStep implements AsyncStep<BlobDescriptor>, Callable<BlobDescriptor> {
-
-  private static class ForwardingProgressListener implements BlobProgressListener {
-
-    private final ProgressEventDispatcher progressEventDispatcher;
-
-    private ForwardingProgressListener(ProgressEventDispatcher progressEventDispatcher) {
-      this.progressEventDispatcher = progressEventDispatcher;
-    }
-
-    @Override
-    public void handleByteCount(long byteCount) {
-      progressEventDispatcher.dispatchProgress(byteCount);
-    }
-
-    @Override
-    public Duration getDelayBetweenCallbacks() {
-      return Duration.ofMillis(100);
-    }
-  }
+class PushBlobStep implements Callable<BlobDescriptor> {
 
   private static final String DESCRIPTION = "Pushing BLOB ";
 
   private final BuildConfiguration buildConfiguration;
   private final ProgressEventDispatcher.Factory progressEventDipatcherFactory;
 
-  private final AuthenticatePushStep authenticatePushStep;
+  @Nullable private final Authorization authorization;
   private final BlobDescriptor blobDescriptor;
   private final Blob blob;
-  private final BuildStepType buildStepType;
-
-  private final ListenableFuture<BlobDescriptor> listenableFuture;
 
   PushBlobStep(
-      ListeningExecutorService listeningExecutorService,
       BuildConfiguration buildConfiguration,
       ProgressEventDispatcher.Factory progressEventDipatcherFactory,
-      AuthenticatePushStep authenticatePushStep,
+      @Nullable Authorization authorization,
       BlobDescriptor blobDescriptor,
-      Blob blob,
-      BuildStepType buildStepType) {
+      Blob blob) {
     this.buildConfiguration = buildConfiguration;
     this.progressEventDipatcherFactory = progressEventDipatcherFactory;
-    this.authenticatePushStep = authenticatePushStep;
+    this.authorization = authorization;
     this.blobDescriptor = blobDescriptor;
     this.blob = blob;
-    this.buildStepType = buildStepType;
-
-    listenableFuture =
-        AsyncDependencies.using(listeningExecutorService)
-            .addStep(authenticatePushStep)
-            .whenAllSucceed(this);
   }
 
   @Override
-  public ListenableFuture<BlobDescriptor> getFuture() {
-    return listenableFuture;
-  }
-
-  @Override
-  public BlobDescriptor call() throws IOException, RegistryException, ExecutionException {
+  public BlobDescriptor call() throws IOException, RegistryException {
     try (ProgressEventDispatcher progressEventDispatcher =
             progressEventDipatcherFactory.create(
-                buildStepType,
-                "pushing blob " + blobDescriptor.getDigest(),
-                blobDescriptor.getSize());
+                "pushing blob " + blobDescriptor.getDigest(), blobDescriptor.getSize());
         TimerEventDispatcher ignored =
             new TimerEventDispatcher(
-                buildConfiguration.getEventDispatcher(), DESCRIPTION + blobDescriptor)) {
+                buildConfiguration.getEventHandlers(), DESCRIPTION + blobDescriptor);
+        ThrottledAccumulatingConsumer throttledProgressReporter =
+            new ThrottledAccumulatingConsumer(progressEventDispatcher::dispatchProgress)) {
       RegistryClient registryClient =
           buildConfiguration
               .newTargetImageRegistryClientFactory()
-              .setAuthorization(NonBlockingSteps.get(authenticatePushStep))
+              .setAuthorization(authorization)
               .newRegistryClient();
 
       // check if the BLOB is available
       if (registryClient.checkBlob(blobDescriptor.getDigest()) != null) {
         buildConfiguration
-            .getEventDispatcher()
+            .getEventHandlers()
             .dispatch(LogEvent.info("BLOB : " + blobDescriptor + " already exists on registry"));
         return blobDescriptor;
       }
 
-      // todo: leverage cross-repository mounts
+      // If base and target images are in the same registry, then use mount/from to try mounting the
+      // BLOB from the base image repository to the target image repository and possibly avoid
+      // having to push the BLOB. See
+      // https://docs.docker.com/registry/spec/api/#cross-repository-blob-mount for details.
+      String baseRegistry = buildConfiguration.getBaseImageConfiguration().getImageRegistry();
+      String baseRepository = buildConfiguration.getBaseImageConfiguration().getImageRepository();
+      String targetRegistry = buildConfiguration.getTargetImageConfiguration().getImageRegistry();
+      String sourceRepository = targetRegistry.equals(baseRegistry) ? baseRepository : null;
       registryClient.pushBlob(
-          blobDescriptor.getDigest(),
-          blob,
-          null,
-          new ForwardingProgressListener(progressEventDispatcher));
+          blobDescriptor.getDigest(), blob, sourceRepository, throttledProgressReporter);
 
       return blobDescriptor;
     }

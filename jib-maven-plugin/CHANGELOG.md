@@ -5,9 +5,50 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Can now containerize a JAR artifact instead of putting individual `.class` and resource files with `<containerizingMode>packaged` ([#1746](https://github.com/GoogleContainerTools/jib/pull/1746/files))
+- Can now use `<from><image>scratch` to use the scratch (empty) base image for builds. ([#1794](https://github.com/GoogleContainerTools/jib/pull/1794/files))
+
 ### Changed
 
+- Dependencies are now split into three layers: dependencies, snapshots dependencies, project dependencies ([#1724](https://github.com/GoogleContainerTools/jib/pull/1724))
+
 ### Fixed
+
+- Re-enabled cross-repository blob mounts ([#1793](https://github.com/GoogleContainerTools/jib/pull/1793))
+
+## 1.3.0
+
+### Changed
+
+- Docker credentials (`~/.docker/config.json`) are now given priority over registry-based inferred credential helpers ([#1704](https://github.com/GoogleContainerTools/jib/pulls/1704))
+
+### Fixed
+
+- Fixed an issue where decyrpting Maven settings `settings.xml` wholesale caused the build to fail. We now decrypt only the parts that are required. ([#1709](https://github.com/GoogleContainerTools/jib/issues/1709))
+
+## 1.2.0
+
+### Added
+
+- Container configurations in the base image are now propagated when registry uses the old V2 image manifest, schema version 1 (such as Quay) ([#1641](https://github.com/GoogleContainerTools/jib/issues/1641))
+- Can now prepend paths in the container to the computed classpath with `<container><extraClasspath>` ([#1642](https://github.com/GoogleContainerTools/jib/pull/1642))
+- Can now build in offline mode using `--offline` ([#718](https://github.com/GoogleContainerTools/jib/issues/718))
+- Now supports multiple extra directories with `<extraDirectories>{<paths><path>|<permissions>}` ([#1020](https://github.com/GoogleContainerTools/jib/issues/1020))
+
+### Changed
+
+- `<extraDirectory>(<path>|<permissions>)` are deprecated in favor of the new `<extraDirectories>{<paths><path>|<permissions>}` configurations ([#1626](https://github.com/GoogleContainerTools/jib/pull/1626))
+
+### Fixed
+
+- Labels in the base image are now propagated ([#1643](https://github.com/GoogleContainerTools/jib/issues/1643))
+- Fixed an issue with using OCI base images ([#1683](https://github.com/GoogleContainerTools/jib/issues/1683))
+
+## 1.1.2
+
+### Fixed
+
+- Fixed an issue where automatically generated parent directories in a layer did not get their timestamp configured correctly to epoch + 1s ([#1648](https://github.com/GoogleContainerTools/jib/issues/1648))
 
 ## 1.1.1
 

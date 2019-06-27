@@ -16,18 +16,17 @@
 
 package com.google.cloud.tools.jib.gradle;
 
-import com.google.cloud.tools.jib.configuration.CacheDirectoryCreationException;
-import com.google.cloud.tools.jib.event.DefaultEventDispatcher;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
-import com.google.cloud.tools.jib.image.ImageReference;
-import com.google.cloud.tools.jib.image.InvalidImageReferenceException;
+import com.google.cloud.tools.jib.api.CacheDirectoryCreationException;
+import com.google.cloud.tools.jib.api.ImageReference;
+import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
 import com.google.cloud.tools.jib.plugins.common.BuildStepsExecutionException;
-import com.google.cloud.tools.jib.plugins.common.BuildStepsRunner;
 import com.google.cloud.tools.jib.plugins.common.HelpfulSuggestions;
 import com.google.cloud.tools.jib.plugins.common.IncompatibleBaseImageJavaVersionException;
 import com.google.cloud.tools.jib.plugins.common.InvalidAppRootException;
 import com.google.cloud.tools.jib.plugins.common.InvalidContainerVolumeException;
+import com.google.cloud.tools.jib.plugins.common.InvalidContainerizingModeException;
 import com.google.cloud.tools.jib.plugins.common.InvalidWorkingDirectoryException;
+import com.google.cloud.tools.jib.plugins.common.JibBuildRunner;
 import com.google.cloud.tools.jib.plugins.common.MainClassInferenceException;
 import com.google.cloud.tools.jib.plugins.common.PluginConfigurationProcessor;
 import com.google.cloud.tools.jib.plugins.common.RawConfiguration;
@@ -78,15 +77,13 @@ public class BuildImageTask extends DefaultTask implements JibTask {
           MainClassInferenceException {
     // Asserts required @Input parameters are not null.
     Preconditions.checkNotNull(jibExtension);
+    TaskCommon.checkDeprecatedUsage(jibExtension, getLogger());
     TaskCommon.disableHttpLogging();
 
     try {
       RawConfiguration gradleRawConfiguration = new GradleRawConfiguration(jibExtension);
-      AbsoluteUnixPath appRoot =
-          PluginConfigurationProcessor.getAppRootChecked(
-              gradleRawConfiguration, TaskCommon.isWarProject(getProject()));
       GradleProjectProperties projectProperties =
-          GradleProjectProperties.getForProject(getProject(), getLogger(), appRoot);
+          GradleProjectProperties.getForProject(getProject(), getLogger());
 
       if (Strings.isNullOrEmpty(jibExtension.getTo().getImage())) {
         throw new GradleException(
@@ -115,13 +112,13 @@ public class BuildImageTask extends DefaultTask implements JibTask {
       Path buildOutput = getProject().getBuildDir().toPath();
 
       try {
-        BuildStepsRunner.forBuildImage(targetImageReference, jibExtension.getTo().getTags())
+        JibBuildRunner.forBuildImage(targetImageReference, jibExtension.getTo().getTags())
             .writeImageDigest(buildOutput.resolve("jib-image.digest"))
             .writeImageId(buildOutput.resolve("jib-image.id"))
             .build(
                 pluginConfigurationProcessor.getJibContainerBuilder(),
                 pluginConfigurationProcessor.getContainerizer(),
-                new DefaultEventDispatcher(projectProperties.getEventHandlers()),
+                projectProperties::log,
                 helpfulSuggestions);
 
       } finally {
@@ -132,6 +129,10 @@ public class BuildImageTask extends DefaultTask implements JibTask {
     } catch (InvalidAppRootException ex) {
       throw new GradleException(
           "container.appRoot is not an absolute Unix-style path: " + ex.getInvalidPathValue(), ex);
+
+    } catch (InvalidContainerizingModeException ex) {
+      throw new GradleException(
+          "invalid value for containerizingMode: " + ex.getInvalidContainerizingMode(), ex);
 
     } catch (InvalidWorkingDirectoryException ex) {
       throw new GradleException(

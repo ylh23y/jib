@@ -16,8 +16,8 @@
 
 package com.google.cloud.tools.jib.maven;
 
-import com.google.cloud.tools.jib.configuration.FilePermissions;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.FilePermissions;
 import com.google.cloud.tools.jib.maven.JibPluginConfiguration.PermissionConfiguration;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -30,18 +30,6 @@ import org.apache.maven.project.MavenProject;
 
 /** Collection of common methods to share between Maven goals. */
 class MojoCommon {
-
-  /**
-   * Gets whether or not the given project is a war project. This is the case for projects with
-   * packaging {@code war} and {@code gwt-app}.
-   *
-   * @param project the Maven project
-   * @return {@code true} if the project is a war project, {@code false} if not
-   */
-  static boolean isWarProject(MavenProject project) {
-    String packaging = project.getPackaging();
-    return "war".equals(packaging) || "gwt-app".equals(packaging);
-  }
 
   /**
    * Gets the list of extra directory paths from a {@link JibPluginConfiguration}. Returns {@code

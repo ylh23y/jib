@@ -16,56 +16,41 @@
 
 package com.google.cloud.tools.jib.builder.steps;
 
-import com.google.cloud.tools.jib.async.AsyncStep;
-import com.google.cloud.tools.jib.builder.BuildStepType;
+import com.google.cloud.tools.jib.api.Credential;
+import com.google.cloud.tools.jib.api.CredentialRetriever;
+import com.google.cloud.tools.jib.api.LogEvent;
 import com.google.cloud.tools.jib.builder.ProgressEventDispatcher;
 import com.google.cloud.tools.jib.builder.TimerEventDispatcher;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
-import com.google.cloud.tools.jib.configuration.credentials.Credential;
-import com.google.cloud.tools.jib.configuration.credentials.CredentialRetriever;
-import com.google.cloud.tools.jib.event.events.LogEvent;
+import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.cloud.tools.jib.registry.credentials.CredentialRetrievalException;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.Optional;
 import java.util.concurrent.Callable;
-import javax.annotation.Nullable;
 
 /** Attempts to retrieve registry credentials. */
-class RetrieveRegistryCredentialsStep implements AsyncStep<Credential>, Callable<Credential> {
-
-  private static String makeDescription(String registry) {
-    return "Retrieving registry credentials for " + registry;
-  }
+class RetrieveRegistryCredentialsStep implements Callable<Optional<Credential>> {
 
   /** Retrieves credentials for the base image. */
   static RetrieveRegistryCredentialsStep forBaseImage(
-      ListeningExecutorService listeningExecutorService,
       BuildConfiguration buildConfiguration,
       ProgressEventDispatcher.Factory progressEventDispatcherFactory) {
     return new RetrieveRegistryCredentialsStep(
-        listeningExecutorService,
         buildConfiguration,
         progressEventDispatcherFactory,
         buildConfiguration.getBaseImageConfiguration().getImageRegistry(),
-        buildConfiguration.getBaseImageConfiguration().getCredentialRetrievers(),
-        BuildStepType.RETRIEVE_REGISTRY_CREDENTIALS_BASE);
+        buildConfiguration.getBaseImageConfiguration().getCredentialRetrievers());
   }
 
   /** Retrieves credentials for the target image. */
   static RetrieveRegistryCredentialsStep forTargetImage(
-      ListeningExecutorService listeningExecutorService,
       BuildConfiguration buildConfiguration,
       ProgressEventDispatcher.Factory progressEventDispatcherFactory) {
     return new RetrieveRegistryCredentialsStep(
-        listeningExecutorService,
         buildConfiguration,
         progressEventDispatcherFactory,
         buildConfiguration.getTargetImageConfiguration().getImageRegistry(),
-        buildConfiguration.getTargetImageConfiguration().getCredentialRetrievers(),
-        BuildStepType.RETRIEVE_REGISTRY_CREDENTIALS_TARGET);
+        buildConfiguration.getTargetImageConfiguration().getCredentialRetrievers());
   }
 
   private final BuildConfiguration buildConfiguration;
@@ -73,57 +58,39 @@ class RetrieveRegistryCredentialsStep implements AsyncStep<Credential>, Callable
 
   private final String registry;
   private final ImmutableList<CredentialRetriever> credentialRetrievers;
-  private final BuildStepType buildStepType;
 
-  private final ListenableFuture<Credential> listenableFuture;
-
-  @VisibleForTesting
   RetrieveRegistryCredentialsStep(
-      ListeningExecutorService listeningExecutorService,
       BuildConfiguration buildConfiguration,
       ProgressEventDispatcher.Factory progressEventDispatcherFactory,
       String registry,
-      ImmutableList<CredentialRetriever> credentialRetrievers,
-      BuildStepType buildStepType) {
+      ImmutableList<CredentialRetriever> credentialRetrievers) {
     this.buildConfiguration = buildConfiguration;
     this.progressEventDispatcherFactory = progressEventDispatcherFactory;
     this.registry = registry;
     this.credentialRetrievers = credentialRetrievers;
-    this.buildStepType = buildStepType;
-
-    listenableFuture = listeningExecutorService.submit(this);
   }
 
   @Override
-  public ListenableFuture<Credential> getFuture() {
-    return listenableFuture;
-  }
-
-  @Override
-  @Nullable
-  public Credential call() throws CredentialRetrievalException {
-    String description = makeDescription(registry);
-
-    buildConfiguration.getEventDispatcher().dispatch(LogEvent.progress(description + "..."));
+  public Optional<Credential> call() throws CredentialRetrievalException {
+    String description = "Retrieving registry credentials for " + registry;
+    EventHandlers eventHandlers = buildConfiguration.getEventHandlers();
+    eventHandlers.dispatch(LogEvent.progress(description + "..."));
 
     try (ProgressEventDispatcher ignored =
-            progressEventDispatcherFactory.create(
-                buildStepType, "retrieving credentials for " + registry, 1);
-        TimerEventDispatcher ignored2 =
-            new TimerEventDispatcher(buildConfiguration.getEventDispatcher(), description)) {
+            progressEventDispatcherFactory.create("retrieving credentials for " + registry, 1);
+        TimerEventDispatcher ignored2 = new TimerEventDispatcher(eventHandlers, description)) {
       for (CredentialRetriever credentialRetriever : credentialRetrievers) {
         Optional<Credential> optionalCredential = credentialRetriever.retrieve();
         if (optionalCredential.isPresent()) {
-          return optionalCredential.get();
+          return optionalCredential;
         }
       }
 
       // If no credentials found, give an info (not warning because in most cases, the base image is
       // public and does not need extra credentials) and return null.
-      buildConfiguration
-          .getEventDispatcher()
-          .dispatch(LogEvent.info("No credentials could be retrieved for registry " + registry));
-      return null;
+      eventHandlers.dispatch(
+          LogEvent.info("No credentials could be retrieved for registry " + registry));
+      return Optional.empty();
     }
   }
 }

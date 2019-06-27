@@ -16,9 +16,9 @@
 
 package com.google.cloud.tools.jib.gradle;
 
-import com.google.cloud.tools.jib.configuration.FilePermissions;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
-import com.google.cloud.tools.jib.image.ImageFormat;
+import com.google.cloud.tools.jib.api.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.FilePermissions;
+import com.google.cloud.tools.jib.api.ImageFormat;
 import com.google.cloud.tools.jib.plugins.common.AuthProperty;
 import com.google.cloud.tools.jib.plugins.common.RawConfiguration;
 import java.nio.file.Path;
@@ -78,6 +78,11 @@ class GradleRawConfiguration implements RawConfiguration {
   @Override
   public Optional<List<String>> getProgramArguments() {
     return Optional.ofNullable(jibExtension.getContainer().getArgs());
+  }
+
+  @Override
+  public List<String> getExtraClasspath() {
+    return jibExtension.getContainer().getExtraClasspath();
   }
 
   @Override
@@ -147,11 +152,16 @@ class GradleRawConfiguration implements RawConfiguration {
 
   @Override
   public List<Path> getExtraDirectories() {
-    return jibExtension.getExtraDirectory().getPaths();
+    return jibExtension.getExtraDirectories().getPaths();
   }
 
   @Override
   public Map<AbsoluteUnixPath, FilePermissions> getExtraDirectoryPermissions() {
-    return TaskCommon.convertPermissionsMap(jibExtension.getExtraDirectory().getPermissions());
+    return TaskCommon.convertPermissionsMap(jibExtension.getExtraDirectories().getPermissions());
+  }
+
+  @Override
+  public String getContainerizingMode() {
+    return jibExtension.getContainerizingMode();
   }
 }

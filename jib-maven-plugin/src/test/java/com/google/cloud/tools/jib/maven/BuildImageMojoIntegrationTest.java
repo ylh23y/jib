@@ -18,9 +18,9 @@ package com.google.cloud.tools.jib.maven;
 
 import com.google.cloud.tools.jib.Command;
 import com.google.cloud.tools.jib.IntegrationTestingConfiguration;
-import com.google.cloud.tools.jib.image.DescriptorDigest;
-import com.google.cloud.tools.jib.image.ImageReference;
-import com.google.cloud.tools.jib.image.InvalidImageReferenceException;
+import com.google.cloud.tools.jib.api.DescriptorDigest;
+import com.google.cloud.tools.jib.api.ImageReference;
+import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
 import com.google.cloud.tools.jib.registry.LocalRegistry;
 import com.google.common.base.Splitter;
 import java.io.IOException;
@@ -98,13 +98,9 @@ public class BuildImageMojoIntegrationTest {
     return Integer.valueOf(split.iterator().next()) >= 11;
   }
 
-  /**
-   * Builds and runs jib:build on a project at {@code projectRoot} pushing to {@code
-   * imageReference}.
-   */
-  private static String buildAndRun(
-      Path projectRoot, String imageReference, String pomXml, boolean runTwice)
-      throws VerificationException, IOException, InterruptedException, DigestException {
+  private static Verifier build(
+      Path projectRoot, String imageReference, String pomXml, boolean buildTwice)
+      throws VerificationException, IOException {
     Verifier verifier = new Verifier(projectRoot.toString());
     verifier.setSystemProperty("jib.useOnlyProjectCache", "true");
     verifier.setSystemProperty("_TARGET_IMAGE", imageReference);
@@ -117,7 +113,7 @@ public class BuildImageMojoIntegrationTest {
     verifier.executeGoal("jib:build");
     float timeOne = getBuildTimeFromVerifierLog(verifier);
 
-    if (runTwice) {
+    if (buildTwice) {
       verifier.resetStreams();
       verifier.executeGoal("jib:build");
       float timeTwo = getBuildTimeFromVerifierLog(verifier);
@@ -126,7 +122,17 @@ public class BuildImageMojoIntegrationTest {
       Assert.assertTrue(String.format(failMessage, timeOne, timeTwo), timeOne > timeTwo);
     }
 
-    verifier.verifyErrorFreeLog();
+    return verifier;
+  }
+
+  /**
+   * Builds with {@code jib:build} on a project at {@code projectRoot} pushing to {@code
+   * imageReference} and run the image after pulling it.
+   */
+  private static String buildAndRun(
+      Path projectRoot, String imageReference, String pomXml, boolean buildTwice)
+      throws VerificationException, IOException, InterruptedException, DigestException {
+    build(projectRoot, imageReference, pomXml, buildTwice).verifyErrorFreeLog();
 
     String output = pullAndRunBuiltImage(imageReference);
 
@@ -283,7 +289,16 @@ public class BuildImageMojoIntegrationTest {
             .trim());
   }
 
-  private static void assertLayerSizer(int expected, String imageReference)
+  private static void assertEntrypoint(String expected, String imageReference)
+      throws IOException, InterruptedException {
+    Assert.assertEquals(
+        expected,
+        new Command("docker", "inspect", "-f", "{{.Config.Entrypoint}}", imageReference)
+            .run()
+            .trim());
+  }
+
+  private static void assertLayerSize(int expected, String imageReference)
       throws IOException, InterruptedException {
     Command command =
         new Command("docker", "inspect", "-f", "{{join .RootFS.Layers \",\"}}", imageReference);
@@ -352,7 +367,27 @@ public class BuildImageMojoIntegrationTest {
             new Command("docker", "inspect", "-f", "{{.Created}}", targetImage).run().trim());
     Assert.assertTrue(buildTime.isAfter(before) || buildTime.equals(before));
     assertWorkingDirectory("/home", targetImage);
-    assertLayerSizer(8, targetImage);
+    assertLayerSize(8, targetImage);
+  }
+
+  @Test
+  public void testExecute_failOffline() throws IOException {
+    String targetImage = getGcrImageReference("simpleimageoffline:maven");
+
+    // Test empty output error
+    try {
+      Verifier verifier = new Verifier(simpleTestProject.getProjectRoot().toString());
+      verifier.setSystemProperty("_TARGET_IMAGE", targetImage);
+      verifier.setAutoclean(false);
+      verifier.addCliOption("--offline");
+      verifier.executeGoals(Arrays.asList("clean", "compile", "jib:build"));
+      Assert.fail();
+
+    } catch (VerificationException ex) {
+      Assert.assertThat(
+          ex.getMessage(),
+          CoreMatchers.containsString("Cannot build to a container registry in offline mode"));
+    }
   }
 
   @Test
@@ -414,7 +449,30 @@ public class BuildImageMojoIntegrationTest {
     Assert.assertEquals(
         "Hello, world. An argument.\nrw-r--r--\nrw-r--r--\nfoo\ncat\nbaz\n",
         buildAndRun(simpleTestProject.getProjectRoot(), targetImage, "pom-extra-dirs.xml", false));
-    assertLayerSizer(9, targetImage); // one more than usual
+    assertLayerSize(9, targetImage); // one more than usual
+  }
+
+  @Test
+  public void testExecute_bothDeprecatedAndNewExtraDirectoryConfigUsed() throws IOException {
+    try {
+      build(
+          simpleTestProject.getProjectRoot(), "foo", "pom-deprecated-and-new-extra-dir.xml", false);
+      Assert.fail();
+    } catch (VerificationException ex) {
+      Assert.assertThat(
+          ex.getMessage(),
+          CoreMatchers.containsString(
+              "You cannot configure both <extraDirectory> and <extraDirectories>"));
+    }
+  }
+
+  @Test
+  public void testExecute_deprecatedExtraDirectoryConfigUsed()
+      throws IOException, VerificationException {
+    String targetImage = getGcrImageReference("simpleimage:maven");
+    build(simpleTestProject.getProjectRoot(), targetImage, "pom-deprecated-extra-dir.xml", false)
+        .verifyTextInLog(
+            "<extraDirectory> is deprecated; use <extraDirectories> with <paths><path>");
   }
 
   @Test
@@ -445,6 +503,9 @@ public class BuildImageMojoIntegrationTest {
         buildAndRunComplex(
             targetImage, "testuser2", "testpassword2", localRegistry2, "pom-complex.xml"));
     assertWorkingDirectory("", targetImage);
+    assertEntrypoint(
+        "[java -Xms512m -Xdebug -cp /other:/app/resources:/app/classes:/app/libs/* com.test.HelloWorld]",
+        targetImage);
   }
 
   @Test
@@ -474,8 +535,13 @@ public class BuildImageMojoIntegrationTest {
   }
 
   @Test
-  public void testExecute_skipJibGoal() throws VerificationException, IOException {
-    SkippedGoalVerifier.verifyGoalIsSkipped(skippedTestProject, BuildImageMojo.GOAL_NAME);
+  public void testExecute_jibSkip() throws VerificationException, IOException {
+    SkippedGoalVerifier.verifyJibSkip(skippedTestProject, BuildImageMojo.GOAL_NAME);
+  }
+
+  @Test
+  public void testExecute_jibContainerizeSkips() throws VerificationException, IOException {
+    SkippedGoalVerifier.verifyJibContainerizeSkips(simpleTestProject, BuildDockerMojo.GOAL_NAME);
   }
 
   @Test

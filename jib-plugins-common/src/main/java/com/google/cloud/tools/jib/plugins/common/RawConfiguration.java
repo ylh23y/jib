@@ -16,9 +16,9 @@
 
 package com.google.cloud.tools.jib.plugins.common;
 
-import com.google.cloud.tools.jib.configuration.FilePermissions;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
-import com.google.cloud.tools.jib.image.ImageFormat;
+import com.google.cloud.tools.jib.api.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.FilePermissions;
+import com.google.cloud.tools.jib.api.ImageFormat;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +45,8 @@ public interface RawConfiguration {
   Iterable<String> getToTags();
 
   Optional<List<String>> getEntrypoint();
+
+  List<String> getExtraClasspath();
 
   Optional<List<String>> getProgramArguments();
 
@@ -77,4 +79,6 @@ public interface RawConfiguration {
   List<Path> getExtraDirectories();
 
   Map<AbsoluteUnixPath, FilePermissions> getExtraDirectoryPermissions();
+
+  String getContainerizingMode();
 }

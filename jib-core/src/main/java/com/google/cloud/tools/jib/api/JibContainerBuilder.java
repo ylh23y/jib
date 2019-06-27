@@ -17,21 +17,12 @@
 package com.google.cloud.tools.jib.api;
 // TODO: Move to com.google.cloud.tools.jib once that package is cleaned up.
 
+import com.google.cloud.tools.jib.builder.TimerEventDispatcher;
 import com.google.cloud.tools.jib.builder.steps.BuildResult;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
-import com.google.cloud.tools.jib.configuration.CacheDirectoryCreationException;
 import com.google.cloud.tools.jib.configuration.ContainerConfiguration;
-import com.google.cloud.tools.jib.configuration.LayerConfiguration;
-import com.google.cloud.tools.jib.configuration.Port;
-import com.google.cloud.tools.jib.event.DefaultEventDispatcher;
-import com.google.cloud.tools.jib.event.events.LogEvent;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
-import com.google.cloud.tools.jib.image.ImageFormat;
-import com.google.cloud.tools.jib.image.LayerEntry;
-import com.google.cloud.tools.jib.registry.InsecureRegistryException;
-import com.google.cloud.tools.jib.registry.RegistryAuthenticationFailedException;
-import com.google.cloud.tools.jib.registry.RegistryException;
-import com.google.cloud.tools.jib.registry.RegistryUnauthorizedException;
+import com.google.cloud.tools.jib.configuration.ImageConfiguration;
+import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.net.UnknownHostException;
@@ -83,14 +74,20 @@ public class JibContainerBuilder {
   private List<LayerConfiguration> layerConfigurations = new ArrayList<>();
 
   /** Instantiate with {@link Jib#from}. */
-  JibContainerBuilder(SourceImage baseImage) {
+  JibContainerBuilder(RegistryImage baseImage) {
     this(baseImage, BuildConfiguration.builder());
   }
 
   @VisibleForTesting
-  JibContainerBuilder(SourceImage baseImage, BuildConfiguration.Builder buildConfigurationBuilder) {
+  JibContainerBuilder(
+      RegistryImage baseImage, BuildConfiguration.Builder buildConfigurationBuilder) {
     this.buildConfigurationBuilder = buildConfigurationBuilder;
-    buildConfigurationBuilder.setBaseImageConfiguration(baseImage.toImageConfiguration());
+
+    ImageConfiguration imageConfiguration =
+        ImageConfiguration.builder(baseImage.getImageReference())
+            .setCredentialRetrievers(baseImage.getCredentialRetrievers())
+            .build();
+    buildConfigurationBuilder.setBaseImageConfiguration(imageConfiguration);
   }
 
   /**
@@ -388,7 +385,7 @@ public class JibContainerBuilder {
    * @return this
    */
   public JibContainerBuilder setFormat(ImageFormat imageFormat) {
-    buildConfigurationBuilder.setTargetFormat(imageFormat.getManifestTemplateClass());
+    buildConfigurationBuilder.setTargetFormat(imageFormat);
     return this;
   }
 
@@ -467,37 +464,18 @@ public class JibContainerBuilder {
       Containerizer containerizer, Supplier<ExecutorService> defaultExecutorServiceFactory)
       throws IOException, CacheDirectoryCreationException, InterruptedException, RegistryException,
           ExecutionException {
-
     boolean shutdownExecutorService = !containerizer.getExecutorService().isPresent();
     ExecutorService executorService =
         containerizer.getExecutorService().orElseGet(defaultExecutorServiceFactory);
 
     BuildConfiguration buildConfiguration = toBuildConfiguration(containerizer, executorService);
 
-    // Logs the different source files used.
-    buildConfiguration
-        .getEventDispatcher()
-        .dispatch(LogEvent.info("Containerizing application with the following files:"));
+    EventHandlers eventHandlers = buildConfiguration.getEventHandlers();
+    logSources(eventHandlers);
 
-    for (LayerConfiguration layerConfiguration : layerConfigurations) {
-      if (layerConfiguration.getLayerEntries().isEmpty()) {
-        continue;
-      }
-
-      buildConfiguration
-          .getEventDispatcher()
-          .dispatch(
-              LogEvent.info("\t" + capitalizeFirstLetter(layerConfiguration.getName()) + ":"));
-
-      for (LayerEntry layerEntry : layerConfiguration.getLayerEntries()) {
-        buildConfiguration
-            .getEventDispatcher()
-            .dispatch(LogEvent.info("\t\t" + layerEntry.getSourceFile()));
-      }
-    }
-
-    try {
-      BuildResult result = containerizer.getTargetImage().toBuildSteps(buildConfiguration).run();
+    try (TimerEventDispatcher ignored =
+        new TimerEventDispatcher(eventHandlers, containerizer.getDescription())) {
+      BuildResult result = containerizer.run(buildConfiguration);
       return new JibContainer(result.getImageDigest(), result.getImageId());
 
     } catch (ExecutionException ex) {
@@ -525,27 +503,39 @@ public class JibContainerBuilder {
    * @throws IOException if an I/O exception occurs
    */
   @VisibleForTesting
-  public BuildConfiguration toBuildConfiguration(
+  BuildConfiguration toBuildConfiguration(
       Containerizer containerizer, ExecutorService executorService)
       throws CacheDirectoryCreationException, IOException {
-    buildConfigurationBuilder
-        .setTargetImageConfiguration(containerizer.getTargetImage().toImageConfiguration())
+    return buildConfigurationBuilder
+        .setTargetImageConfiguration(containerizer.getImageConfiguration())
         .setAdditionalTargetImageTags(containerizer.getAdditionalTags())
         .setBaseImageLayersCacheDirectory(containerizer.getBaseImageLayersCacheDirectory())
         .setApplicationLayersCacheDirectory(containerizer.getApplicationLayersCacheDirectory())
         .setContainerConfiguration(containerConfigurationBuilder.build())
         .setLayerConfigurations(layerConfigurations)
         .setAllowInsecureRegistries(containerizer.getAllowInsecureRegistries())
+        .setOffline(containerizer.isOfflineMode())
         .setToolName(containerizer.getToolName())
-        .setExecutorService(executorService);
+        .setExecutorService(executorService)
+        .setEventHandlers(containerizer.buildEventHandlers())
+        .build();
+  }
 
-    containerizer
-        .getEventHandlers()
-        .ifPresent(
-            eventHandlers ->
-                buildConfigurationBuilder.setEventDispatcher(
-                    new DefaultEventDispatcher(eventHandlers)));
+  private void logSources(EventHandlers eventHandlers) {
+    // Logs the different source files used.
+    eventHandlers.dispatch(LogEvent.info("Containerizing application with the following files:"));
 
-    return buildConfigurationBuilder.build();
+    for (LayerConfiguration layerConfiguration : layerConfigurations) {
+      if (layerConfiguration.getLayerEntries().isEmpty()) {
+        continue;
+      }
+
+      eventHandlers.dispatch(
+          LogEvent.info("\t" + capitalizeFirstLetter(layerConfiguration.getName()) + ":"));
+
+      for (LayerEntry layerEntry : layerConfiguration.getLayerEntries()) {
+        eventHandlers.dispatch(LogEvent.info("\t\t" + layerEntry.getSourceFile()));
+      }
+    }
   }
 }

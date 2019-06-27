@@ -16,7 +16,7 @@
 
 package com.google.cloud.tools.jib.builder;
 
-import com.google.cloud.tools.jib.event.EventDispatcher;
+import com.google.cloud.tools.jib.event.EventHandlers;
 import com.google.cloud.tools.jib.event.events.ProgressEvent;
 import java.util.List;
 import org.junit.Assert;
@@ -31,20 +31,20 @@ import org.mockito.junit.MockitoJUnitRunner;
 @RunWith(MockitoJUnitRunner.class)
 public class ProgressEventDispatcherTest {
 
-  @Mock private EventDispatcher mockEventDispatcher;
+  @Mock private EventHandlers mockEventHandlers;
 
   @Test
   public void testDispatch() {
     try (ProgressEventDispatcher progressEventDispatcher =
-            ProgressEventDispatcher.newRoot(mockEventDispatcher, "ignored", 10);
+            ProgressEventDispatcher.newRoot(mockEventHandlers, "ignored", 10);
         ProgressEventDispatcher ignored =
-            progressEventDispatcher.newChildProducer().create(BuildStepType.ALL, "ignored", 20)) {
+            progressEventDispatcher.newChildProducer().create("ignored", 20)) {
       // empty
     }
 
     ArgumentCaptor<ProgressEvent> progressEventArgumentCaptor =
         ArgumentCaptor.forClass(ProgressEvent.class);
-    Mockito.verify(mockEventDispatcher, Mockito.times(4))
+    Mockito.verify(mockEventHandlers, Mockito.times(4))
         .dispatch(progressEventArgumentCaptor.capture());
     List<ProgressEvent> progressEvents = progressEventArgumentCaptor.getAllValues();
 
@@ -60,14 +60,14 @@ public class ProgressEventDispatcherTest {
   @Test
   public void testDispatch_safeWithtooMuchProgress() {
     try (ProgressEventDispatcher progressEventDispatcher =
-        ProgressEventDispatcher.newRoot(mockEventDispatcher, "allocation description", 10)) {
+        ProgressEventDispatcher.newRoot(mockEventHandlers, "allocation description", 10)) {
       progressEventDispatcher.dispatchProgress(6);
       progressEventDispatcher.dispatchProgress(8);
       progressEventDispatcher.dispatchProgress(1);
     }
 
     ArgumentCaptor<ProgressEvent> eventsCaptor = ArgumentCaptor.forClass(ProgressEvent.class);
-    Mockito.verify(mockEventDispatcher, Mockito.times(4)).dispatch(eventsCaptor.capture());
+    Mockito.verify(mockEventHandlers, Mockito.times(4)).dispatch(eventsCaptor.capture());
     List<ProgressEvent> progressEvents = eventsCaptor.getAllValues();
 
     Assert.assertSame(progressEvents.get(0).getAllocation(), progressEvents.get(1).getAllocation());
@@ -85,16 +85,16 @@ public class ProgressEventDispatcherTest {
   @Test
   public void testDispatch_safeWithTooManyChildren() {
     try (ProgressEventDispatcher progressEventDispatcher =
-            ProgressEventDispatcher.newRoot(mockEventDispatcher, "allocation description", 1);
+            ProgressEventDispatcher.newRoot(mockEventHandlers, "allocation description", 1);
         ProgressEventDispatcher ignored1 =
-            progressEventDispatcher.newChildProducer().create(BuildStepType.ALL, "ignored", 5);
+            progressEventDispatcher.newChildProducer().create("ignored", 5);
         ProgressEventDispatcher ignored2 =
-            progressEventDispatcher.newChildProducer().create(BuildStepType.ALL, "ignored", 4)) {
+            progressEventDispatcher.newChildProducer().create("ignored", 4)) {
       // empty
     }
 
     ArgumentCaptor<ProgressEvent> eventsCaptor = ArgumentCaptor.forClass(ProgressEvent.class);
-    Mockito.verify(mockEventDispatcher, Mockito.times(5)).dispatch(eventsCaptor.capture());
+    Mockito.verify(mockEventHandlers, Mockito.times(5)).dispatch(eventsCaptor.capture());
     List<ProgressEvent> progressEvents = eventsCaptor.getAllValues();
 
     Assert.assertEquals(1, progressEvents.get(0).getAllocation().getAllocationUnits());

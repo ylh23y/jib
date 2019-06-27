@@ -16,16 +16,19 @@
 
 package com.google.cloud.tools.jib.plugins.common;
 
+import com.google.cloud.tools.jib.api.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.CacheDirectoryCreationException;
 import com.google.cloud.tools.jib.api.Containerizer;
+import com.google.cloud.tools.jib.api.InvalidImageReferenceException;
+import com.google.cloud.tools.jib.api.JavaContainerBuilder;
 import com.google.cloud.tools.jib.api.JavaContainerBuilder.LayerType;
+import com.google.cloud.tools.jib.api.JibContainerBuilder;
+import com.google.cloud.tools.jib.api.JibContainerBuilderTestHelper;
+import com.google.cloud.tools.jib.api.LayerConfiguration;
+import com.google.cloud.tools.jib.api.LayerEntry;
 import com.google.cloud.tools.jib.api.RegistryImage;
 import com.google.cloud.tools.jib.configuration.BuildConfiguration;
-import com.google.cloud.tools.jib.configuration.CacheDirectoryCreationException;
-import com.google.cloud.tools.jib.configuration.LayerConfiguration;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.filesystem.FileOperations;
-import com.google.cloud.tools.jib.image.InvalidImageReferenceException;
-import com.google.cloud.tools.jib.image.LayerEntry;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -104,14 +107,18 @@ public class JavaContainerBuilderHelperTest {
     Path temporaryExplodedWar = temporaryFolder.getRoot().toPath().resolve("exploded-war");
 
     Files.createDirectories(temporaryExplodedWar.resolve("WEB-INF/classes/empty_dir"));
-    Path extraFilesDirectory = Paths.get(Resources.getResource("core/layer").toURI());
+    Paths.get(Resources.getResource("core/layer").toURI());
 
+    JavaContainerBuilder javaContainerBuilder =
+        JavaContainerBuilder.from(RegistryImage.named("base"))
+            .setAppRoot(AbsoluteUnixPath.get("/my/app"));
+    JibContainerBuilder jibContainerBuilder =
+        JavaContainerBuilderHelper.fromExplodedWar(javaContainerBuilder, temporaryExplodedWar);
     BuildConfiguration configuration =
-        JavaContainerBuilderHelper.fromExplodedWar(
-                RegistryImage.named("base"), temporaryExplodedWar, AbsoluteUnixPath.get("/my/app"))
-            .toBuildConfiguration(
-                Containerizer.to(RegistryImage.named("target")),
-                MoreExecutors.newDirectExecutorService());
+        JibContainerBuilderTestHelper.toBuildConfiguration(
+            jibContainerBuilder,
+            Containerizer.to(RegistryImage.named("target"))
+                .setExecutorService(MoreExecutors.newDirectExecutorService()));
 
     List<LayerConfiguration> resourcesLayerConfigurations =
         getLayerConfigurationsByName(configuration, LayerType.RESOURCES.getName());

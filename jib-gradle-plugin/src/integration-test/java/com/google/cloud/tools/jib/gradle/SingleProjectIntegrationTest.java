@@ -77,7 +77,16 @@ public class SingleProjectIntegrationTest {
             .trim());
   }
 
-  private static void assertLayerSizer(int expected, String imageReference)
+  private static void assertEntrypoint(String expected, String imageReference)
+      throws IOException, InterruptedException {
+    Assert.assertEquals(
+        expected,
+        new Command("docker", "inspect", "-f", "{{.Config.Entrypoint}}", imageReference)
+            .run()
+            .trim());
+  }
+
+  private static void assertLayerSize(int expected, String imageReference)
       throws IOException, InterruptedException {
     Command command =
         new Command("docker", "inspect", "-f", "{{join .RootFS.Layers \",\"}}", imageReference);
@@ -118,6 +127,22 @@ public class SingleProjectIntegrationTest {
                 + "                \"key1\": \"value1\",\n"
                 + "                \"key2\": \"value2\"\n"
                 + "            }"));
+  }
+
+  private static void assertExtraDirectoryDeprecationWarning(String pomXml)
+      throws DigestException, IOException, InterruptedException {
+    String targetImage = "localhost:6000/simpleimage:gradle" + System.nanoTime();
+    BuildResult buildResult =
+        JibRunHelper.buildToDockerDaemon(simpleTestProject, targetImage, pomXml);
+    Assert.assertEquals(
+        "Hello, world. \nrw-r--r--\nrw-r--r--\nfoo\ncat\n",
+        new Command("docker", "run", "--rm", targetImage).run());
+    Assert.assertThat(
+        buildResult.getOutput(),
+        CoreMatchers.containsString(
+            "'jib.extraDirectory', 'jib.extraDirectory.path', and 'jib.extraDirectory.permissions' "
+                + "are deprecated; use 'jib.extraDirectories.paths' and "
+                + "'jib.extraDirectories.permissions'"));
   }
 
   private static String buildAndRunComplex(
@@ -184,7 +209,34 @@ public class SingleProjectIntegrationTest {
     assertDockerInspect(targetImage);
     assertSimpleCreationTimeIsAfter(beforeBuild, targetImage);
     assertWorkingDirectory("/home", targetImage);
-    assertLayerSizer(8, targetImage);
+    assertEntrypoint(
+        "[java -cp /d1:/d2:/app/resources:/app/classes:/app/libs/* com.test.HelloWorld]",
+        targetImage);
+    assertLayerSize(8, targetImage);
+  }
+
+  @Test
+  public void testBuild_failOffline() {
+    String targetImage =
+        "gcr.io/"
+            + IntegrationTestingConfiguration.getGCPProject()
+            + "/simpleimageoffline:gradle"
+            + System.nanoTime();
+
+    try {
+      simpleTestProject.build(
+          "--offline",
+          "clean",
+          "jib",
+          "-Djib.useOnlyProjectCache=true",
+          "-Djib.console=plain",
+          "-D_TARGET_IMAGE=" + targetImage);
+      Assert.fail();
+    } catch (UnexpectedBuildFailure ex) {
+      Assert.assertThat(
+          ex.getMessage(),
+          CoreMatchers.containsString("Cannot build to a container registry in offline mode"));
+    }
   }
 
   @Test
@@ -221,6 +273,24 @@ public class SingleProjectIntegrationTest {
   }
 
   @Test
+  public void testDockerDaemon_simple_deprecatedExtraDirectory()
+      throws DigestException, IOException, InterruptedException {
+    assertExtraDirectoryDeprecationWarning("build-extra-dir-deprecated.gradle");
+  }
+
+  @Test
+  public void testDockerDaemon_simple_deprecatedExtraDirectory2()
+      throws DigestException, IOException, InterruptedException {
+    assertExtraDirectoryDeprecationWarning("build-extra-dir-deprecated2.gradle");
+  }
+
+  @Test
+  public void testDockerDaemon_simple_deprecatedExtraDirectory3()
+      throws DigestException, IOException, InterruptedException {
+    assertExtraDirectoryDeprecationWarning("build-extra-dir-deprecated3.gradle");
+  }
+
+  @Test
   public void testDockerDaemon_simple_multipleExtraDirectories()
       throws DigestException, IOException, InterruptedException {
     String targetImage = "localhost:6000/simpleimage:gradle" + System.nanoTime();
@@ -228,7 +298,7 @@ public class SingleProjectIntegrationTest {
         "Hello, world. \nrw-r--r--\nrw-r--r--\nfoo\ncat\nbaz\n",
         JibRunHelper.buildToDockerDaemonAndRun(
             simpleTestProject, targetImage, "build-extra-dirs.gradle"));
-    assertLayerSizer(9, targetImage); // one more than usual
+    assertLayerSize(9, targetImage); // one more than usual
   }
 
   @Test
@@ -239,7 +309,7 @@ public class SingleProjectIntegrationTest {
         "Hello, world. \nrw-r--r--\nrw-r--r--\nfoo\ncat\nbaz\n",
         JibRunHelper.buildToDockerDaemonAndRun(
             simpleTestProject, targetImage, "build-extra-dirs2.gradle"));
-    assertLayerSizer(9, targetImage); // one more than usual
+    assertLayerSize(9, targetImage); // one more than usual
   }
 
   @Test
@@ -277,7 +347,17 @@ public class SingleProjectIntegrationTest {
   }
 
   @Test
-  public void testExecute_dockerClient() throws IOException, InterruptedException, DigestException {
+  public void testDockerDaemon_jarContainerization()
+      throws DigestException, IOException, InterruptedException {
+    String targetImage = "simpleimage:gradle" + System.nanoTime();
+    Assert.assertEquals(
+        "Hello, world. \nImplementation-Title: helloworld\nImplementation-Version: 1\n",
+        JibRunHelper.buildToDockerDaemonAndRun(
+            simpleTestProject, targetImage, "build-jar-containerization.gradle"));
+  }
+
+  @Test
+  public void testBuild_dockerClient() throws IOException, InterruptedException, DigestException {
     Assume.assumeFalse(System.getProperty("os.name").startsWith("Windows"));
     new Command(
             "chmod", "+x", simpleTestProject.getProjectRoot().resolve("mock-docker.sh").toString())

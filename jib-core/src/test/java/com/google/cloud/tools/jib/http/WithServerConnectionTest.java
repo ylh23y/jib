@@ -16,12 +16,15 @@
 
 package com.google.cloud.tools.jib.http;
 
-import com.google.cloud.tools.jib.blob.Blobs;
+import com.google.common.io.ByteStreams;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.util.Arrays;
 import javax.net.ssl.SSLException;
+import org.hamcrest.CoreMatchers;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -37,7 +40,9 @@ public class WithServerConnectionTest {
       Response response = connection.send("GET", new Request.Builder().build());
 
       Assert.assertEquals(200, response.getStatusCode());
-      Assert.assertEquals("Hello World!", Blobs.writeToString(response.getBody()));
+      Assert.assertArrayEquals(
+          "Hello World!".getBytes(StandardCharsets.UTF_8),
+          ByteStreams.toByteArray(response.getBody()));
     }
   }
 
@@ -81,7 +86,41 @@ public class WithServerConnectionTest {
       Response response = connection.send("GET", new Request.Builder().build());
 
       Assert.assertEquals(200, response.getStatusCode());
-      Assert.assertEquals("Hello World!", Blobs.writeToString(response.getBody()));
+      Assert.assertArrayEquals(
+          "Hello World!".getBytes(StandardCharsets.UTF_8),
+          ByteStreams.toByteArray(response.getBody()));
+    }
+  }
+
+  @Test
+  public void testProxyCredentialProperties()
+      throws IOException, InterruptedException, GeneralSecurityException, URISyntaxException {
+    String proxyResponse =
+        "HTTP/1.1 407 Proxy Authentication Required\n"
+            + "Proxy-Authenticate: BASIC realm=\"some-realm\"\n"
+            + "Cache-Control: no-cache\n"
+            + "Pragma: no-cache\n"
+            + "Content-Length: 0\n\n";
+    String targetServerResponse = "HTTP/1.1 200 OK\nContent-Length:12\n\nHello World!";
+
+    try (TestWebServer server =
+        new TestWebServer(false, Arrays.asList(proxyResponse, targetServerResponse))) {
+      System.setProperty("http.proxyHost", "localhost");
+      System.setProperty("http.proxyPort", String.valueOf(server.getLocalPort()));
+      System.setProperty("http.proxyUser", "user_sys_prop");
+      System.setProperty("http.proxyPassword", "pass_sys_prop");
+
+      try (Connection connection =
+          Connection.getConnectionFactory().apply(new URL("http://does.not.matter"))) {
+        Response response = connection.send("GET", new Request.Builder().build());
+        Assert.assertThat(
+            server.getInputRead(),
+            CoreMatchers.containsString(
+                "Proxy-Authorization: Basic dXNlcl9zeXNfcHJvcDpwYXNzX3N5c19wcm9w"));
+        Assert.assertArrayEquals(
+            "Hello World!".getBytes(StandardCharsets.UTF_8),
+            ByteStreams.toByteArray(response.getBody()));
+      }
     }
   }
 }

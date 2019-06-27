@@ -16,7 +16,10 @@
 
 package com.google.cloud.tools.jib.image;
 
+import com.google.cloud.tools.jib.api.LayerConfiguration;
+import com.google.cloud.tools.jib.api.LayerEntry;
 import com.google.cloud.tools.jib.blob.Blob;
+import com.google.cloud.tools.jib.blob.Blobs;
 import com.google.cloud.tools.jib.tar.TarStreamBuilder;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
@@ -55,7 +58,8 @@ public class ReproducibleLayerBuilder {
 
     /**
      * Adds a {@link TarArchiveEntry} if its extraction path does not exist yet. Also adds all of
-     * the parent directories on the extraction path.
+     * the parent directories on the extraction path, if the parent does not exist. Parent will have
+     * modified time to set to {@link LayerConfiguration#DEFAULT_MODIFIED_TIME}.
      *
      * @param tarArchiveEntry the {@link TarArchiveEntry}
      */
@@ -68,7 +72,9 @@ public class ReproducibleLayerBuilder {
       // directories.
       Path namePath = Paths.get(tarArchiveEntry.getName());
       if (namePath.getParent() != namePath.getRoot()) {
-        add(new TarArchiveEntry(DIRECTORY_FILE, namePath.getParent().toString()));
+        TarArchiveEntry dir = new TarArchiveEntry(DIRECTORY_FILE, namePath.getParent().toString());
+        dir.setModTime(LayerConfiguration.DEFAULT_MODIFIED_TIME.toEpochMilli());
+        add(dir);
       }
 
       entries.add(tarArchiveEntry);
@@ -121,6 +127,7 @@ public class ReproducibleLayerBuilder {
     TarStreamBuilder tarStreamBuilder = new TarStreamBuilder();
     for (TarArchiveEntry entry : sortedFilesystemEntries) {
       // Strips out all non-reproducible elements from tar archive entries.
+      // Modified time is configured per entry
       entry.setGroupId(0);
       entry.setUserId(0);
       entry.setUserName("");
@@ -132,6 +139,6 @@ public class ReproducibleLayerBuilder {
       tarStreamBuilder.addTarArchiveEntry(entry);
     }
 
-    return tarStreamBuilder.toBlob();
+    return Blobs.from(tarStreamBuilder::writeAsTarArchiveTo);
   }
 }

@@ -16,9 +16,9 @@
 
 package com.google.cloud.tools.jib.maven;
 
-import com.google.cloud.tools.jib.configuration.FilePermissions;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
-import com.google.cloud.tools.jib.image.ImageFormat;
+import com.google.cloud.tools.jib.api.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.FilePermissions;
+import com.google.cloud.tools.jib.api.ImageFormat;
 import com.google.cloud.tools.jib.plugins.common.AuthProperty;
 import com.google.cloud.tools.jib.plugins.common.RawConfiguration;
 import java.nio.file.Path;
@@ -83,6 +83,11 @@ class MavenRawConfiguration implements RawConfiguration {
   @Override
   public Optional<List<String>> getProgramArguments() {
     return Optional.ofNullable(jibPluginConfiguration.getArgs());
+  }
+
+  @Override
+  public List<String> getExtraClasspath() {
+    return jibPluginConfiguration.getExtraClasspath();
   }
 
   @Override
@@ -158,5 +163,10 @@ class MavenRawConfiguration implements RawConfiguration {
   @Override
   public Map<AbsoluteUnixPath, FilePermissions> getExtraDirectoryPermissions() {
     return MojoCommon.convertPermissionsList(jibPluginConfiguration.getExtraDirectoryPermissions());
+  }
+
+  @Override
+  public String getContainerizingMode() {
+    return jibPluginConfiguration.getContainerizingMode();
   }
 }

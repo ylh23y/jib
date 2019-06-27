@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+### Changed
+
+- `JibContainerBuilder#addDependencies` is now split into three methods: `addDependencies`, `addSnapshotDependencies`, `addProjectDependencies` ([#1773](https://github.com/GoogleContainerTools/jib/pull/1773))
+
+### Fixed
+
+## 0.10.0
+
+### Added
+
+- `Containerizer#addEventHandler` for adding event handlers
+
+### Changed
+
+- Multiple classes have been moved to the `com.google.cloud.tools.jib.api` package
+- Event handlers are now added directly to the `Containerizer` rather than adding them to an `EventHandlers` object first
+- Removed multiple classes to simplify the event system (`JibEventType`, `BuildStepType`, `EventDispatcher`, `DefaultEventDispatcher`, `LayerCountEvent`)
+- MainClassFinder now uses a static method instead of requiring instantiation
+
+## 0.9.2
+
+### Added
+
+- Container configurations in the base image are now propagated when registry uses the old V2 image manifest, schema version 1 (such as Quay) ([#1641](https://github.com/GoogleContainerTools/jib/issues/1641))
+- `Containerizer#setOfflineMode` to retrieve the base image from Jib's cache rather than a container registry ([#718](https://github.com/GoogleContainerTools/jib/issues/718))
+
+### Fixed
+
+- Labels in the base image are now propagated ([#1643](https://github.com/GoogleContainerTools/jib/issues/1643))
+- Fixed an issue with using OCI base images ([#1683](https://github.com/GoogleContainerTools/jib/issues/1683))
+
+## 0.9.1
+
+### Added
+
 - Overloads for `LayerConfiguration#addEntryRecursive` that take providers allowing for setting file permissions/file modification timestamps on a per-file basis ([#1607](https://github.com/GoogleContainerTools/jib/issues/1607))
 
 ### Changed
@@ -13,6 +48,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed an issue where automatically generated parent directories in a layer did not get their timestamp configured correctly to epoch + 1s ([#1648](https://github.com/GoogleContainerTools/jib/issues/1648))
 - Fixed an issue where the library creates wrong images by adding base image layers in reverse order when registry uses the old V2 image manifest, schema version 1 (such as Quay) ([#1627](https://github.com/GoogleContainerTools/jib/issues/1627))
 
 ## 0.9.0

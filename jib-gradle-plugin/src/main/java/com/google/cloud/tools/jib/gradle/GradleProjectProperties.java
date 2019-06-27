@@ -16,15 +16,17 @@
 
 package com.google.cloud.tools.jib.gradle;
 
+import com.google.cloud.tools.jib.api.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.Containerizer;
 import com.google.cloud.tools.jib.api.JavaContainerBuilder;
 import com.google.cloud.tools.jib.api.JibContainerBuilder;
+import com.google.cloud.tools.jib.api.LogEvent;
 import com.google.cloud.tools.jib.api.RegistryImage;
-import com.google.cloud.tools.jib.event.EventHandlers;
-import com.google.cloud.tools.jib.event.JibEventType;
-import com.google.cloud.tools.jib.event.events.LogEvent;
+import com.google.cloud.tools.jib.event.events.ProgressEvent;
+import com.google.cloud.tools.jib.event.events.TimerEvent;
 import com.google.cloud.tools.jib.event.progress.ProgressEventHandler;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.filesystem.DirectoryWalker;
+import com.google.cloud.tools.jib.plugins.common.ContainerizingMode;
 import com.google.cloud.tools.jib.plugins.common.JavaContainerBuilderHelper;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
 import com.google.cloud.tools.jib.plugins.common.PropertyNames;
@@ -40,17 +42,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.tools.ant.taskdefs.condition.Os;
 import org.gradle.api.GradleException;
 import org.gradle.api.JavaVersion;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
+import org.gradle.api.artifacts.ResolvedArtifact;
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
+import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.plugins.JavaPluginConvention;
+import org.gradle.api.plugins.WarPlugin;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.jvm.tasks.Jar;
 
@@ -70,53 +74,12 @@ class GradleProjectProperties implements ProjectProperties {
   private static final String MAIN_SOURCE_SET_NAME = "main";
 
   /** @return a GradleProjectProperties from the given project and logger. */
-  static GradleProjectProperties getForProject(
-      Project project, Logger logger, AbsoluteUnixPath appRoot) {
-    return new GradleProjectProperties(project, logger, appRoot);
+  static GradleProjectProperties getForProject(Project project, Logger logger) {
+    return new GradleProjectProperties(project, logger);
   }
 
   static Path getExplodedWarDirectory(Project project) {
     return project.getBuildDir().toPath().resolve(ProjectProperties.EXPLODED_WAR_DIRECTORY_NAME);
-  }
-
-  private static EventHandlers makeEventHandlers(
-      Project project, Logger logger, SingleThreadedExecutor singleThreadedExecutor) {
-    ConsoleLoggerBuilder consoleLoggerBuilder =
-        (isProgressFooterEnabled(project)
-                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor)
-                : ConsoleLoggerBuilder.plain(singleThreadedExecutor).progress(logger::lifecycle))
-            .lifecycle(logger::lifecycle);
-    if (logger.isDebugEnabled()) {
-      consoleLoggerBuilder.debug(logger::debug);
-    }
-    if (logger.isInfoEnabled()) {
-      consoleLoggerBuilder.info(logger::info);
-    }
-    if (logger.isWarnEnabled()) {
-      consoleLoggerBuilder.warn(logger::warn);
-    }
-    if (logger.isErrorEnabled()) {
-      consoleLoggerBuilder.error(logger::error);
-    }
-    ConsoleLogger consoleLogger = consoleLoggerBuilder.build();
-
-    return new EventHandlers()
-        .add(
-            JibEventType.LOGGING,
-            logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
-        .add(
-            JibEventType.TIMING,
-            new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
-        .add(
-            JibEventType.PROGRESS,
-            new ProgressEventHandler(
-                update -> {
-                  List<String> footer =
-                      ProgressDisplayGenerator.generateProgressDisplay(
-                          update.getProgress(), update.getUnfinishedAllocations());
-                  footer.add("");
-                  consoleLogger.setFooter(footer);
-                }));
   }
 
   private static boolean isProgressFooterEnabled(Project project) {
@@ -139,26 +102,44 @@ class GradleProjectProperties implements ProjectProperties {
 
   private final Project project;
   private final SingleThreadedExecutor singleThreadedExecutor = new SingleThreadedExecutor();
-  private final EventHandlers eventHandlers;
   private final Logger logger;
-  private final AbsoluteUnixPath appRoot;
+  private final ConsoleLogger consoleLogger;
 
   @VisibleForTesting
-  GradleProjectProperties(Project project, Logger logger, AbsoluteUnixPath appRoot) {
+  GradleProjectProperties(Project project, Logger logger) {
     this.project = project;
     this.logger = logger;
-    this.appRoot = appRoot;
-
-    eventHandlers = makeEventHandlers(project, logger, singleThreadedExecutor);
+    ConsoleLoggerBuilder consoleLoggerBuilder =
+        (isProgressFooterEnabled(project)
+                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor)
+                : ConsoleLoggerBuilder.plain(singleThreadedExecutor).progress(logger::lifecycle))
+            .lifecycle(logger::lifecycle);
+    if (logger.isDebugEnabled()) {
+      consoleLoggerBuilder.debug(logger::debug);
+    }
+    if (logger.isInfoEnabled()) {
+      consoleLoggerBuilder.info(logger::info);
+    }
+    if (logger.isWarnEnabled()) {
+      consoleLoggerBuilder.warn(logger::warn);
+    }
+    if (logger.isErrorEnabled()) {
+      consoleLoggerBuilder.error(logger::error);
+    }
+    consoleLogger = consoleLoggerBuilder.build();
   }
 
   @Override
-  public JibContainerBuilder createContainerBuilder(RegistryImage baseImage) {
+  public JibContainerBuilder createContainerBuilder(
+      RegistryImage baseImage, AbsoluteUnixPath appRoot, ContainerizingMode containerizingMode) {
+    JavaContainerBuilder javaContainerBuilder =
+        JavaContainerBuilder.from(baseImage).setAppRoot(appRoot);
+
     try {
       if (isWarProject()) {
         logger.info("WAR project identified, creating WAR image: " + project.getDisplayName());
         Path explodedWarPath = GradleProjectProperties.getExplodedWarDirectory(project);
-        return JavaContainerBuilderHelper.fromExplodedWar(baseImage, explodedWarPath, appRoot);
+        return JavaContainerBuilderHelper.fromExplodedWar(javaContainerBuilder, explodedWarPath);
       }
 
       JavaPluginConvention javaPluginConvention =
@@ -169,36 +150,76 @@ class GradleProjectProperties implements ProjectProperties {
       FileCollection classesOutputDirectories =
           mainSourceSet.getOutput().getClassesDirs().filter(File::exists);
       Path resourcesOutputDirectory = mainSourceSet.getOutput().getResourcesDir().toPath();
-      FileCollection allFiles = mainSourceSet.getRuntimeClasspath();
-      FileCollection dependencyFiles =
+      FileCollection allFiles = mainSourceSet.getRuntimeClasspath().filter(File::exists);
+
+      FileCollection projectDependencies =
+          project.files(
+              project
+                  .getConfigurations()
+                  .getByName(JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME)
+                  .getResolvedConfiguration()
+                  .getResolvedArtifacts()
+                  .stream()
+                  .filter(
+                      artifact ->
+                          artifact.getId().getComponentIdentifier()
+                              instanceof ProjectComponentIdentifier)
+                  .map(ResolvedArtifact::getFile)
+                  .collect(Collectors.toList()));
+
+      FileCollection nonProjectDependencies =
           allFiles
               .minus(classesOutputDirectories)
+              .minus(projectDependencies)
               .filter(file -> !file.toPath().equals(resourcesOutputDirectory));
 
-      JavaContainerBuilder javaContainerBuilder =
-          JavaContainerBuilder.from(baseImage).setAppRoot(appRoot);
-
-      // Adds resource files
-      if (Files.exists(resourcesOutputDirectory)) {
-        javaContainerBuilder.addResources(resourcesOutputDirectory);
-      }
-
-      // Adds class files
-      for (File classesOutputDirectory : classesOutputDirectories) {
-        javaContainerBuilder.addClasses(classesOutputDirectory.toPath());
-      }
-      if (classesOutputDirectories.isEmpty()) {
-        logger.warn("No classes files were found - did you compile your project?");
-      }
+      FileCollection snapshotDependencies =
+          nonProjectDependencies.filter(file -> file.getName().contains("SNAPSHOT"));
+      FileCollection dependencies = nonProjectDependencies.minus(snapshotDependencies);
 
       // Adds dependency files
-      javaContainerBuilder.addDependencies(
-          dependencyFiles
-              .getFiles()
-              .stream()
-              .filter(File::exists)
-              .map(File::toPath)
-              .collect(Collectors.toList()));
+      javaContainerBuilder
+          .addDependencies(
+              dependencies.getFiles().stream().map(File::toPath).collect(Collectors.toList()))
+          .addSnapshotDependencies(
+              snapshotDependencies
+                  .getFiles()
+                  .stream()
+                  .map(File::toPath)
+                  .collect(Collectors.toList()))
+          .addProjectDependencies(
+              projectDependencies
+                  .getFiles()
+                  .stream()
+                  .map(File::toPath)
+                  .collect(Collectors.toList()));
+
+      switch (containerizingMode) {
+        case EXPLODED:
+          // Adds resource files
+          if (Files.exists(resourcesOutputDirectory)) {
+            javaContainerBuilder.addResources(resourcesOutputDirectory);
+          }
+
+          // Adds class files
+          for (File classesOutputDirectory : classesOutputDirectories) {
+            javaContainerBuilder.addClasses(classesOutputDirectory.toPath());
+          }
+          if (classesOutputDirectories.isEmpty()) {
+            logger.warn("No classes files were found - did you compile your project?");
+          }
+          break;
+
+        case PACKAGED:
+          // Add a JAR
+          Jar jarTask = (Jar) project.getTasks().findByName("jar");
+          javaContainerBuilder.addToClasspath(
+              jarTask.getDestinationDir().toPath().resolve(jarTask.getArchiveName()));
+          break;
+
+        default:
+          throw new IllegalStateException("unknown containerizing mode: " + containerizingMode);
+      }
 
       return javaContainerBuilder.toContainerBuilder();
 
@@ -228,8 +249,27 @@ class GradleProjectProperties implements ProjectProperties {
   }
 
   @Override
-  public EventHandlers getEventHandlers() {
-    return eventHandlers;
+  public void configureEventHandlers(Containerizer containerizer) {
+    containerizer
+        .addEventHandler(LogEvent.class, this::log)
+        .addEventHandler(
+            TimerEvent.class,
+            new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
+        .addEventHandler(
+            ProgressEvent.class,
+            new ProgressEventHandler(
+                update -> {
+                  List<String> footer =
+                      ProgressDisplayGenerator.generateProgressDisplay(
+                          update.getProgress(), update.getUnfinishedLeafTasks());
+                  footer.add("");
+                  consoleLogger.setFooter(footer);
+                }));
+  }
+
+  @Override
+  public void log(LogEvent logEvent) {
+    consoleLogger.log(logEvent.getLevel(), logEvent.getMessage());
   }
 
   @Override
@@ -245,11 +285,11 @@ class GradleProjectProperties implements ProjectProperties {
   @Nullable
   @Override
   public String getMainClassFromJar() {
-    List<Task> jarTasks = new ArrayList<>(project.getTasksByName("jar", false));
-    if (jarTasks.size() != 1) {
+    Jar jarTask = (Jar) project.getTasks().findByName("jar");
+    if (jarTask == null) {
       return null;
     }
-    return (String) ((Jar) jarTasks.get(0)).getManifest().getAttributes().get("Main-Class");
+    return (String) jarTask.getManifest().getAttributes().get("Main-Class");
   }
 
   @Override
@@ -264,31 +304,32 @@ class GradleProjectProperties implements ProjectProperties {
 
   @Override
   public boolean isWarProject() {
-    return TaskCommon.isWarProject(project);
+    return project.getPlugins().hasPlugin(WarPlugin.class);
   }
 
   /**
-   * Returns the input files for a task.
+   * Returns the input files for a task. These files include the runtimeClasspath of the application
+   * and any extraDirectories defined by the user to include in the container.
    *
-   * @param extraDirectory the image's configured extra directory
    * @param project the gradle project
-   * @return the input files to the task are all the output files for all the dependencies of the
-   *     {@code classes} task
+   * @param extraDirectories the image's configured extra directories
+   * @return the input files
    */
-  static FileCollection getInputFiles(File extraDirectory, Project project) {
-    Task classesTask = project.getTasks().getByPath("classes");
-    Set<? extends Task> classesDependencies =
-        classesTask.getTaskDependencies().getDependencies(classesTask);
-
+  static FileCollection getInputFiles(Project project, List<Path> extraDirectories) {
+    JavaPluginConvention javaPluginConvention =
+        project.getConvention().getPlugin(JavaPluginConvention.class);
+    SourceSet mainSourceSet = javaPluginConvention.getSourceSets().getByName(MAIN_SOURCE_SET_NAME);
     List<FileCollection> dependencyFileCollections = new ArrayList<>();
-    for (Task task : classesDependencies) {
-      dependencyFileCollections.add(task.getOutputs().getFiles());
-    }
-    if (Files.exists(extraDirectory.toPath())) {
-      return project.files(dependencyFileCollections, extraDirectory);
-    } else {
-      return project.files(dependencyFileCollections);
-    }
+    dependencyFileCollections.add(mainSourceSet.getRuntimeClasspath());
+
+    extraDirectories
+        .stream()
+        .filter(Files::exists)
+        .map(Path::toFile)
+        .map(project::files)
+        .forEach(dependencyFileCollections::add);
+
+    return project.files(dependencyFileCollections);
   }
 
   @Override
@@ -310,5 +351,10 @@ class GradleProjectProperties implements ProjectProperties {
       version = javaPluginConvention.getTargetCompatibility();
     }
     return Integer.valueOf(version.getMajorVersion());
+  }
+
+  @Override
+  public boolean isOffline() {
+    return project.getGradle().getStartParameter().isOffline();
   }
 }

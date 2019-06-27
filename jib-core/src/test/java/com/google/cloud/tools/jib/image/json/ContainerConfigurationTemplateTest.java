@@ -16,13 +16,12 @@
 
 package com.google.cloud.tools.jib.image.json;
 
-import com.google.cloud.tools.jib.image.DescriptorDigest;
+import com.google.cloud.tools.jib.api.DescriptorDigest;
 import com.google.cloud.tools.jib.json.JsonTemplateMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.io.Resources;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -91,10 +90,7 @@ public class ContainerConfigurationTemplateTest {
             .build());
 
     // Serializes the JSON object.
-    ByteArrayOutputStream jsonStream = new ByteArrayOutputStream();
-    JsonTemplateMapper.toBlob(containerConfigJson).writeTo(jsonStream);
-
-    Assert.assertEquals(expectedJson, jsonStream.toString());
+    Assert.assertEquals(expectedJson, JsonTemplateMapper.toUtf8String(containerConfigJson));
   }
 
   @Test

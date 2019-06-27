@@ -16,15 +16,18 @@
 
 package com.google.cloud.tools.jib.maven;
 
+import com.google.cloud.tools.jib.api.AbsoluteUnixPath;
+import com.google.cloud.tools.jib.api.Containerizer;
 import com.google.cloud.tools.jib.api.JavaContainerBuilder;
+import com.google.cloud.tools.jib.api.JavaContainerBuilder.LayerType;
 import com.google.cloud.tools.jib.api.JibContainerBuilder;
+import com.google.cloud.tools.jib.api.LogEvent;
 import com.google.cloud.tools.jib.api.RegistryImage;
-import com.google.cloud.tools.jib.event.EventHandlers;
-import com.google.cloud.tools.jib.event.JibEventType;
-import com.google.cloud.tools.jib.event.events.LogEvent;
+import com.google.cloud.tools.jib.event.events.ProgressEvent;
+import com.google.cloud.tools.jib.event.events.TimerEvent;
 import com.google.cloud.tools.jib.event.progress.ProgressEventHandler;
-import com.google.cloud.tools.jib.filesystem.AbsoluteUnixPath;
 import com.google.cloud.tools.jib.filesystem.DirectoryWalker;
+import com.google.cloud.tools.jib.plugins.common.ContainerizingMode;
 import com.google.cloud.tools.jib.plugins.common.JavaContainerBuilderHelper;
 import com.google.cloud.tools.jib.plugins.common.ProjectProperties;
 import com.google.cloud.tools.jib.plugins.common.PropertyNames;
@@ -34,11 +37,15 @@ import com.google.cloud.tools.jib.plugins.common.logging.ConsoleLoggerBuilder;
 import com.google.cloud.tools.jib.plugins.common.logging.ProgressDisplayGenerator;
 import com.google.cloud.tools.jib.plugins.common.logging.SingleThreadedExecutor;
 import com.google.common.annotations.VisibleForTesting;
-import java.io.File;
+import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -69,12 +76,10 @@ public class MavenProjectProperties implements ProjectProperties {
    * @param project the {@link MavenProject} for the plugin.
    * @param session the {@link MavenSession} for the plugin.
    * @param log the Maven {@link Log} to log messages during Jib execution
-   * @param appRoot root directory in the image where the app will be placed
    * @return a MavenProjectProperties from the given project and logger.
    */
-  static MavenProjectProperties getForProject(
-      MavenProject project, MavenSession session, Log log, AbsoluteUnixPath appRoot) {
-    return new MavenProjectProperties(project, session, log, appRoot);
+  static MavenProjectProperties getForProject(MavenProject project, MavenSession session, Log log) {
+    return new MavenProjectProperties(project, session, log);
   }
 
   /**
@@ -82,6 +87,8 @@ public class MavenProjectProperties implements ProjectProperties {
    * checks for a property defined in the POM, then returns null if neither are defined.
    *
    * @param propertyName the name of the system property
+   * @param project the Maven project
+   * @param session the Maven session
    * @return the value of the system property, or null if not defined
    */
   @Nullable
@@ -94,43 +101,6 @@ public class MavenProjectProperties implements ProjectProperties {
       return project.getProperties().getProperty(propertyName);
     }
     return null;
-  }
-
-  private static EventHandlers makeEventHandlers(
-      MavenSession session, Log log, SingleThreadedExecutor singleThreadedExecutor) {
-    ConsoleLoggerBuilder logEventHandlerBuilder =
-        (isProgressFooterEnabled(session)
-                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor)
-                : ConsoleLoggerBuilder.plain(singleThreadedExecutor).progress(log::info))
-            .lifecycle(log::info);
-    if (log.isDebugEnabled()) {
-      logEventHandlerBuilder
-          .debug(log::debug)
-          // INFO messages also go to Log#debug since Log#info is used for LIFECYCLE.
-          .info(log::debug);
-    }
-    if (log.isWarnEnabled()) {
-      logEventHandlerBuilder.warn(log::warn);
-    }
-    if (log.isErrorEnabled()) {
-      logEventHandlerBuilder.error(log::error);
-    }
-    ConsoleLogger consoleLogger = logEventHandlerBuilder.build();
-
-    return new EventHandlers()
-        .add(
-            JibEventType.LOGGING,
-            logEvent -> consoleLogger.log(logEvent.getLevel(), logEvent.getMessage()))
-        .add(
-            JibEventType.TIMING,
-            new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
-        .add(
-            JibEventType.PROGRESS,
-            new ProgressEventHandler(
-                update ->
-                    consoleLogger.setFooter(
-                        ProgressDisplayGenerator.generateProgressDisplay(
-                            update.getProgress(), update.getUnfinishedAllocations()))));
   }
 
   @VisibleForTesting
@@ -182,51 +152,122 @@ public class MavenProjectProperties implements ProjectProperties {
   }
 
   private final MavenProject project;
+  private final MavenSession session;
   private final SingleThreadedExecutor singleThreadedExecutor = new SingleThreadedExecutor();
-  private final EventHandlers eventHandlers;
-  private final AbsoluteUnixPath appRoot;
+  private final ConsoleLogger consoleLogger;
 
   @VisibleForTesting
-  MavenProjectProperties(
-      MavenProject project, MavenSession session, Log log, AbsoluteUnixPath appRoot) {
+  MavenProjectProperties(MavenProject project, MavenSession session, Log log) {
     this.project = project;
-    this.appRoot = appRoot;
-    eventHandlers = makeEventHandlers(session, log, singleThreadedExecutor);
+    this.session = session;
+    ConsoleLoggerBuilder consoleLoggerBuilder =
+        (isProgressFooterEnabled(session)
+                ? ConsoleLoggerBuilder.rich(singleThreadedExecutor)
+                : ConsoleLoggerBuilder.plain(singleThreadedExecutor).progress(log::info))
+            .lifecycle(log::info);
+    if (log.isDebugEnabled()) {
+      consoleLoggerBuilder
+          .debug(log::debug)
+          // INFO messages also go to Log#debug since Log#info is used for LIFECYCLE.
+          .info(log::debug);
+    }
+    if (log.isWarnEnabled()) {
+      consoleLoggerBuilder.warn(log::warn);
+    }
+    if (log.isErrorEnabled()) {
+      consoleLoggerBuilder.error(log::error);
+    }
+    consoleLogger = consoleLoggerBuilder.build();
   }
 
   @Override
-  public JibContainerBuilder createContainerBuilder(RegistryImage baseImage) throws IOException {
+  public JibContainerBuilder createContainerBuilder(
+      RegistryImage baseImage, AbsoluteUnixPath appRoot, ContainerizingMode containerizingMode)
+      throws IOException {
+    JavaContainerBuilder javaContainerBuilder =
+        JavaContainerBuilder.from(baseImage).setAppRoot(appRoot);
+
     try {
       if (isWarProject()) {
         Path explodedWarPath =
-            Paths.get(project.getBuild().getDirectory()).resolve(project.getBuild().getFinalName());
-        return JavaContainerBuilderHelper.fromExplodedWar(baseImage, explodedWarPath, appRoot);
+            Paths.get(project.getBuild().getDirectory(), project.getBuild().getFinalName());
+        return JavaContainerBuilderHelper.fromExplodedWar(javaContainerBuilder, explodedWarPath);
       }
 
-      Path classesOutputDirectory = Paths.get(project.getBuild().getOutputDirectory());
-      Predicate<Path> isClassFile = path -> path.getFileName().toString().endsWith(".class");
+      switch (containerizingMode) {
+        case EXPLODED:
+          // Add resources, and classes
+          Path classesOutputDirectory = Paths.get(project.getBuild().getOutputDirectory());
+          // Don't use Path.endsWith(), since Path works on path elements.
+          Predicate<Path> isClassFile = path -> path.getFileName().toString().endsWith(".class");
+          javaContainerBuilder
+              .addResources(classesOutputDirectory, isClassFile.negate())
+              .addClasses(classesOutputDirectory, isClassFile);
+          break;
 
-      // Add dependencies, resources, and classes
-      return JavaContainerBuilder.from(baseImage)
-          .setAppRoot(appRoot)
-          .addResources(classesOutputDirectory, isClassFile.negate())
-          .addClasses(classesOutputDirectory, isClassFile)
-          .addDependencies(
-              project
-                  .getArtifacts()
+        case PACKAGED:
+          // Add a JAR
+          javaContainerBuilder.addToClasspath(getJarArtifact());
+          break;
+
+        default:
+          throw new IllegalStateException("unknown containerizing mode: " + containerizingMode);
+      }
+
+      // Classify and add dependencies
+      Map<LayerType, List<Path>> classifiedDependencies =
+          classifyDependencies(
+              project.getArtifacts(),
+              session
+                  .getProjects()
                   .stream()
-                  .map(Artifact::getFile)
-                  .map(File::toPath)
-                  .collect(Collectors.toList()))
+                  .map(MavenProject::getArtifact)
+                  .collect(Collectors.toSet()));
+
+      return javaContainerBuilder
+          .addDependencies(
+              Preconditions.checkNotNull(classifiedDependencies.get(LayerType.DEPENDENCIES)))
+          .addSnapshotDependencies(
+              Preconditions.checkNotNull(
+                  classifiedDependencies.get(LayerType.SNAPSHOT_DEPENDENCIES)))
+          .addProjectDependencies(
+              Preconditions.checkNotNull(
+                  classifiedDependencies.get(LayerType.PROJECT_DEPENDENCIES)))
           .toContainerBuilder();
 
     } catch (IOException ex) {
       throw new IOException(
-          "Obtaining project build output files failed; make sure you have compiled your project "
+          "Obtaining project build output files failed; make sure you have "
+              + (containerizingMode == ContainerizingMode.PACKAGED ? "packaged" : "compiled")
+              + " your project "
               + "before trying to build the image. (Did you accidentally run \"mvn clean "
-              + "jib:build\" instead of \"mvn clean compile jib:build\"?)",
+              + "jib:build\" instead of \"mvn clean "
+              + (containerizingMode == ContainerizingMode.PACKAGED ? "package" : "compile")
+              + " jib:build\"?)",
           ex);
     }
+  }
+
+  @VisibleForTesting
+  Map<LayerType, List<Path>> classifyDependencies(
+      Set<Artifact> dependencies, Set<Artifact> projectArtifacts) {
+    Map<LayerType, List<Path>> classifiedDependencies = new HashMap<>();
+    classifiedDependencies.put(LayerType.DEPENDENCIES, new ArrayList<>());
+    classifiedDependencies.put(LayerType.SNAPSHOT_DEPENDENCIES, new ArrayList<>());
+    classifiedDependencies.put(LayerType.PROJECT_DEPENDENCIES, new ArrayList<>());
+
+    for (Artifact artifact : dependencies) {
+      if (projectArtifacts.contains(artifact)) {
+        classifiedDependencies.get(LayerType.PROJECT_DEPENDENCIES).add(artifact.getFile().toPath());
+      } else if (artifact.isSnapshot()) {
+        classifiedDependencies
+            .get(LayerType.SNAPSHOT_DEPENDENCIES)
+            .add(artifact.getFile().toPath());
+      } else {
+        classifiedDependencies.get(LayerType.DEPENDENCIES).add(artifact.getFile().toPath());
+      }
+    }
+    return classifiedDependencies;
   }
 
   @Override
@@ -240,8 +281,24 @@ public class MavenProjectProperties implements ProjectProperties {
   }
 
   @Override
-  public EventHandlers getEventHandlers() {
-    return eventHandlers;
+  public void configureEventHandlers(Containerizer containerizer) {
+    containerizer
+        .addEventHandler(LogEvent.class, this::log)
+        .addEventHandler(
+            TimerEvent.class,
+            new TimerEventHandler(message -> consoleLogger.log(LogEvent.Level.DEBUG, message)))
+        .addEventHandler(
+            ProgressEvent.class,
+            new ProgressEventHandler(
+                update ->
+                    consoleLogger.setFooter(
+                        ProgressDisplayGenerator.generateProgressDisplay(
+                            update.getProgress(), update.getUnfinishedLeafTasks()))));
+  }
+
+  @Override
+  public void log(LogEvent logEvent) {
+    consoleLogger.log(logEvent.getLevel(), logEvent.getMessage());
   }
 
   @Override
@@ -290,9 +347,16 @@ public class MavenProjectProperties implements ProjectProperties {
     return JAR_PLUGIN_NAME;
   }
 
+  /**
+   * Gets whether or not the given project is a war project. This is the case for projects with
+   * packaging {@code war} and {@code gwt-app}.
+   *
+   * @return {@code true} if the project is a war project, {@code false} if not
+   */
   @Override
   public boolean isWarProject() {
-    return MojoCommon.isWarProject(project);
+    String packaging = project.getPackaging();
+    return "war".equals(packaging) || "gwt-app".equals(packaging);
   }
 
   @Override
@@ -332,5 +396,26 @@ public class MavenProjectProperties implements ProjectProperties {
       }
     }
     return 6; // maven-compiler-plugin default is 1.6
+  }
+
+  @Override
+  public boolean isOffline() {
+    return session.isOffline();
+  }
+
+  /**
+   * Gets the path of the JAR that the Maven JAR Plugin would generate.
+   *
+   * <p>https://maven.apache.org/plugins/maven-jar-plugin/jar-mojo.html
+   * https://github.com/apache/maven-jar-plugin/blob/80f58a84aacff6e671f5a601d62a3a3800b507dc/src/main/java/org/apache/maven/plugins/jar/AbstractJarMojo.java#L177
+   *
+   * @return the path of the JAR
+   */
+  @VisibleForTesting
+  Path getJarArtifact() {
+    // TODO: use maven-jar-plugin's <outputDirectory> and <classifier> (i.e.,
+    // "<outputDirectory>/<finalName>-<classifier>.jar").
+    String jarName = project.getBuild().getFinalName() + ".jar";
+    return Paths.get(project.getBuild().getDirectory(), jarName);
   }
 }
